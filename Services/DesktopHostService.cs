@@ -11,14 +11,14 @@ namespace SmoothFolder.Services;
 /// folder tiles directly above the Explorer desktop host in the top-level
 /// Z-order.
 ///
+/// SmoothFolder does not assume that all Windows 11 builds expose the same
+/// Progman/WorkerW hierarchy. Discovery classifies the current Explorer layout
+/// and validates both HWND identity and Explorer process ownership.
+///
 /// Folder tiles remain independent top-level WPF layered windows. They are not
 /// made WS_CHILD windows (which broke per-pixel WPF rendering on some Windows
 /// 11 systems), and they are not owned by WorkerW/Progman (owned top-level
 /// windows can float above normal application windows).
-///
-/// The result is a compatibility layer: tiles visually live on the desktop,
-/// normal application windows stay above them, and the larger folder popup
-/// remains a conventional top-level window.
 /// </summary>
 public sealed class DesktopHostService
 {
@@ -35,15 +35,20 @@ public sealed class DesktopHostService
     private const int SwShowNoActivate = 4;
 
     private const int GwlStyle = -16;
+    private const int GwlExStyle = -20;
     private const int GwlHwndParent = -8;
+
     private const long WsChild = 0x40000000L;
     private const long WsPopup = unchecked((long)0x80000000);
+    private const long WsExLayered = 0x00080000L;
+    private const long WsExNoRedirectionBitmap = 0x00200000L;
 
     private static readonly IntPtr HwndTop = IntPtr.Zero;
 
     private IntPtr _progman;
     private IntPtr _shellView;
     private IntPtr _desktopHost;
+    private IntPtr _wallpaperWorker;
     private uint _explorerProcessId;
 
     private readonly HashSet<IntPtr> _configuredTiles = [];
@@ -52,15 +57,18 @@ public sealed class DesktopHostService
 
     public long Generation { get; private set; }
 
+    public DesktopShellLayout Layout { get; private set; } =
+        DesktopShellLayout.Unknown;
+
     public void InvalidateHost(string reason)
     {
-        if (_desktopHost != IntPtr.Zero || _shellView != IntPtr.Zero || _progman != IntPtr.Zero)
+        if (HasHostState())
         {
             CrashLogService.LogMessage(
                 "Desktop host invalidated",
                 $"{reason}{Environment.NewLine}" +
-                $"Previous generation={Generation}; Explorer PID={_explorerProcessId}; " +
-                $"host={FormatHandle(_desktopHost)}.");
+                $"Previous generation={Generation}; layout={Layout}; " +
+                $"Explorer PID={_explorerProcessId}; host={FormatHandle(_desktopHost)}.");
         }
 
         ResetHostState();
@@ -68,8 +76,15 @@ public sealed class DesktopHostService
 
     public bool RefreshHost()
     {
-        if (IsHostValid())
+        if (ValidateHost(out _))
             return true;
+
+        if (HasHostState() && !ValidateHost(out var validationFailure))
+        {
+            CrashLogService.LogMessage(
+                "Desktop host validation failed",
+                validationFailure);
+        }
 
         ResetHostState();
 
@@ -79,7 +94,7 @@ public sealed class DesktopHostService
             _reportedDiscoveryFailure = true;
             CrashLogService.LogMessage(
                 "Desktop host discovery failed",
-                "SmoothFolder could not find a valid Progman/WorkerW + SHELLDLL_DefView hierarchy. " +
+                "SmoothFolder could not find a supported Explorer desktop hierarchy. " +
                 "Folder tiles will remain normal hidden-from-taskbar WPF windows.");
         }
 
@@ -140,11 +155,9 @@ public sealed class DesktopHostService
         var width = Math.Max(1, rect.Right - rect.Left);
         var height = Math.Max(1, rect.Bottom - rect.Top);
 
-        var insertAfter = GetDesktopInsertAfter(hwnd);
-
         return SetWindowPos(
             hwnd,
-            insertAfter,
+            GetDesktopInsertAfter(hwnd),
             targetX,
             targetY,
             width,
@@ -220,10 +233,9 @@ public sealed class DesktopHostService
                 return false;
             }
 
-            // Clear the native owner used by patch 0011. Keeping WorkerW/Progman
-            // as GWLP_HWNDPARENT makes this an owned top-level window, and owned
-            // windows are constrained to remain above their owner. That was the
-            // source of tiles occasionally covering normal application windows.
+            // A tile must remain an independent top-level window. A WorkerW or
+            // Progman owner would force it to stay above that owner and can
+            // produce unexpected application-level Z-order behavior.
             Marshal.SetLastPInvokeError(0);
             _ = SetWindowLongPtr(hwnd, GwlHwndParent, IntPtr.Zero);
             var ownerError = Marshal.GetLastPInvokeError();
@@ -259,7 +271,8 @@ public sealed class DesktopHostService
                 CrashLogService.LogMessage(
                     "Desktop tile attached",
                     $"Tile {FormatHandle(hwnd)} is using desktop Z-order mode. " +
-                    $"Desktop host={DescribeWindow(_desktopHost)}; Visible={IsWindowVisible(hwnd)}.");
+                    $"Layout={Layout}; host={DescribeWindow(_desktopHost)}; " +
+                    $"Visible={IsWindowVisible(hwnd)}.");
             }
 
             return true;
@@ -273,16 +286,17 @@ public sealed class DesktopHostService
 
     private IntPtr GetDesktopInsertAfter(IntPtr tileHwnd)
     {
-        // hWndInsertAfter names the window that should precede the positioned
-        // window. The window immediately above the desktop host is therefore
-        // the ideal anchor: SmoothFolder lands between that window and the
-        // desktop host, beneath all normal application windows.
+        // The compact tile is kept immediately above the top-level window that
+        // owns Explorer's icon view. This works for both:
+        //
+        //   Classic: top-level WorkerW -> SHELLDLL_DefView
+        //   Raised:  top-level Progman -> layered SHELLDLL_DefView
+        //
+        // Normal application windows remain above the tile.
         var immediatelyAboveDesktop = GetWindow(
             _desktopHost,
             GetWindowCommand.Previous);
 
-        // If this tile is already immediately above Explorer, use the window
-        // above the tile so SetWindowPos does not receive the tile itself.
         if (immediatelyAboveDesktop == tileHwnd)
         {
             immediatelyAboveDesktop = GetWindow(
@@ -290,9 +304,6 @@ public sealed class DesktopHostService
                 GetWindowCommand.Previous);
         }
 
-        // With no window above the desktop host, HWND_TOP is safe: there are no
-        // normal top-level windows to cover. Any subsequently activated app will
-        // naturally enter the Z-order above the WS_EX_NOACTIVATE tile.
         return immediatelyAboveDesktop == IntPtr.Zero
             ? HwndTop
             : immediatelyAboveDesktop;
@@ -303,7 +314,9 @@ public sealed class DesktopHostService
         _progman = IntPtr.Zero;
         _shellView = IntPtr.Zero;
         _desktopHost = IntPtr.Zero;
+        _wallpaperWorker = IntPtr.Zero;
         _explorerProcessId = 0;
+        Layout = DesktopShellLayout.Unknown;
         _reportedCurrentHost = false;
         _configuredTiles.Clear();
     }
@@ -318,57 +331,49 @@ public sealed class DesktopHostService
         if (_explorerProcessId == 0)
             return false;
 
-        _ = SendMessageTimeout(
+        var raisedDesktop = HasExtendedStyle(
             _progman,
-            WorkerWMessage,
-            new UIntPtr(0xD),
-            new IntPtr(0x1),
-            SmtoAbortIfHung,
-            1000,
-            out _);
+            WsExNoRedirectionBitmap);
 
-        _ = SendMessageTimeout(
-            _progman,
-            WorkerWMessage,
-            UIntPtr.Zero,
-            IntPtr.Zero,
-            SmtoAbortIfHung,
-            1000,
-            out _);
-
-        _shellView = FindWindowEx(
-            _progman,
-            IntPtr.Zero,
-            "SHELLDLL_DefView",
-            null);
+        // Do not send Explorer's undocumented WorkerW message on every
+        // discovery. SmoothFolder only needs the existing icon host for its
+        // Z-order anchor. Forcing WorkerW creation is reserved as a last-resort
+        // wake-up if SHELLDLL_DefView cannot be found at all.
+        _shellView = FindExplorerShellView();
 
         if (_shellView == IntPtr.Zero)
         {
-            _ = EnumWindows((topLevel, _) =>
-            {
-                var shellView = FindWindowEx(
-                    topLevel,
-                    IntPtr.Zero,
-                    "SHELLDLL_DefView",
-                    null);
-
-                if (shellView == IntPtr.Zero)
-                    return true;
-
-                _shellView = shellView;
-                return false;
-            }, IntPtr.Zero);
+            RequestDesktopHierarchy(raisedDesktop);
+            _shellView = FindExplorerShellView();
         }
 
         if (_shellView == IntPtr.Zero)
+        {
+            LogDiscoverySnapshot(
+                "SHELLDLL_DefView was not found after the compatibility wake-up.");
             return false;
+        }
 
         _desktopHost = GetParent(_shellView);
         if (_desktopHost == IntPtr.Zero)
             _desktopHost = _progman;
 
-        if (!IsHostValid())
+        if (!BelongsToExplorer(_shellView) ||
+            !BelongsToExplorer(_desktopHost))
+        {
+            LogDiscoverySnapshot(
+                "The discovered desktop hierarchy is not fully owned by the Progman Explorer process.");
             return false;
+        }
+
+        Layout = ClassifyLayout(raisedDesktop);
+        _wallpaperWorker = FindWallpaperWorker();
+
+        if (!ValidateHost(out var validationFailure))
+        {
+            LogDiscoverySnapshot(validationFailure);
+            return false;
+        }
 
         Generation++;
         _reportedDiscoveryFailure = false;
@@ -376,40 +381,341 @@ public sealed class DesktopHostService
         if (!_reportedCurrentHost)
         {
             _reportedCurrentHost = true;
+
+            var progmanExStyle = GetWindowLongPtr(
+                _progman,
+                GwlExStyle).ToInt64();
+
+            var shellViewExStyle = GetWindowLongPtr(
+                _shellView,
+                GwlExStyle).ToInt64();
+
             CrashLogService.LogMessage(
                 "Desktop host discovered",
-                $"Generation={Generation}; Explorer PID={_explorerProcessId}{Environment.NewLine}" +
-                $"Progman={DescribeWindow(_progman)}{Environment.NewLine}" +
-                $"SHELLDLL_DefView={DescribeWindow(_shellView)}{Environment.NewLine}" +
-                $"Desktop host={DescribeWindow(_desktopHost)}");
+                $"Generation={Generation}; layout={Layout}; Explorer PID={_explorerProcessId}{Environment.NewLine}" +
+                $"Progman={DescribeWindow(_progman)} exStyle=0x{progmanExStyle:X}{Environment.NewLine}" +
+                $"SHELLDLL_DefView={DescribeWindow(_shellView)} exStyle=0x{shellViewExStyle:X}{Environment.NewLine}" +
+                $"Desktop host={DescribeWindow(_desktopHost)}{Environment.NewLine}" +
+                $"Wallpaper WorkerW={DescribeWindow(_wallpaperWorker)}");
         }
 
         return true;
     }
 
-    private bool IsHostValid()
+    private IntPtr FindExplorerShellView()
     {
+        // Fast paths first.
+        var direct = FindWindowEx(
+            _progman,
+            IntPtr.Zero,
+            "SHELLDLL_DefView",
+            null);
+
+        if (direct != IntPtr.Zero && BelongsToExplorer(direct))
+            return direct;
+
+        // Raised-desktop variants can move shell children while keeping them
+        // somewhere under Progman. EnumChildWindows walks descendants too.
+        IntPtr descendant = IntPtr.Zero;
+
+        _ = EnumChildWindows(
+            _progman,
+            (child, _) =>
+            {
+                if (!ClassEquals(child, "SHELLDLL_DefView") ||
+                    !BelongsToExplorer(child))
+                {
+                    return true;
+                }
+
+                descendant = child;
+                return false;
+            },
+            IntPtr.Zero);
+
+        if (descendant != IntPtr.Zero)
+            return descendant;
+
+        // Classic layouts commonly host SHELLDLL_DefView under a top-level
+        // WorkerW sibling rather than under Progman.
+        IntPtr topLevelShellView = IntPtr.Zero;
+
+        _ = EnumWindows(
+            (topLevel, _) =>
+            {
+                if (!BelongsToExplorer(topLevel))
+                    return true;
+
+                var candidate = FindWindowEx(
+                    topLevel,
+                    IntPtr.Zero,
+                    "SHELLDLL_DefView",
+                    null);
+
+                if (candidate == IntPtr.Zero ||
+                    !BelongsToExplorer(candidate))
+                {
+                    return true;
+                }
+
+                topLevelShellView = candidate;
+                return false;
+            },
+            IntPtr.Zero);
+
+        return topLevelShellView;
+    }
+
+    private DesktopShellLayout ClassifyLayout(bool raisedDesktop)
+    {
+        var hostClass = GetClassNameText(_desktopHost);
+
+        if (_desktopHost == _progman && raisedDesktop)
+            return DesktopShellLayout.RaisedProgman;
+
+        if (string.Equals(
+                hostClass,
+                "WorkerW",
+                StringComparison.Ordinal))
+        {
+            return DesktopShellLayout.ClassicWorkerW;
+        }
+
+        if (_desktopHost == _progman)
+            return DesktopShellLayout.ProgmanHosted;
+
+        // Accept an unknown class only when it is structurally valid and owned
+        // by the same Explorer process. This is intentionally conservative but
+        // gives future Windows builds a usable compatibility path.
+        return DesktopShellLayout.CompatibleUnknown;
+    }
+
+    private IntPtr FindWallpaperWorker()
+    {
+        if (Layout == DesktopShellLayout.RaisedProgman ||
+            Layout == DesktopShellLayout.ProgmanHosted)
+        {
+            return FindWindowEx(
+                _progman,
+                IntPtr.Zero,
+                "WorkerW",
+                null);
+        }
+
+        if (Layout == DesktopShellLayout.ClassicWorkerW)
+        {
+            // The classic wallpaper WorkerW is often the next top-level WorkerW
+            // sibling after the WorkerW that hosts SHELLDLL_DefView.
+            var sibling = FindWindowEx(
+                IntPtr.Zero,
+                _desktopHost,
+                "WorkerW",
+                null);
+
+            return sibling;
+        }
+
+        return IntPtr.Zero;
+    }
+
+    private void RequestDesktopHierarchy(bool raisedDesktop)
+    {
+        // Modern raised desktops use 0xD/0x1. Classic layouts use 0/0.
+        // The alternate form is tried only if the first request still does not
+        // make SHELLDLL_DefView discoverable.
+        SendWorkerWRequest(raisedDesktop);
+
+        if (FindExplorerShellView() != IntPtr.Zero)
+            return;
+
+        SendWorkerWRequest(!raisedDesktop);
+    }
+
+    private void SendWorkerWRequest(bool raisedDesktop)
+    {
+        var wParam = raisedDesktop
+            ? new UIntPtr(0xD)
+            : UIntPtr.Zero;
+
+        var lParam = raisedDesktop
+            ? new IntPtr(0x1)
+            : IntPtr.Zero;
+
+        _ = SendMessageTimeout(
+            _progman,
+            WorkerWMessage,
+            wParam,
+            lParam,
+            SmtoAbortIfHung,
+            1000,
+            out _);
+
+        CrashLogService.LogMessage(
+            "Explorer desktop compatibility wake-up",
+            raisedDesktop
+                ? "Sent Progman 0x052C with wParam=0xD, lParam=0x1."
+                : "Sent Progman 0x052C with wParam=0, lParam=0.");
+    }
+
+    private bool ValidateHost(out string reason)
+    {
+        reason = string.Empty;
+
         if (_desktopHost == IntPtr.Zero ||
             _shellView == IntPtr.Zero ||
             _progman == IntPtr.Zero ||
-            _explorerProcessId == 0 ||
-            !IsWindow(_desktopHost) ||
-            !IsWindow(_shellView) ||
-            !IsWindow(_progman))
+            _explorerProcessId == 0)
         {
+            reason = "One or more desktop host handles are not initialized.";
             return false;
         }
 
-        // Explorer HWND values can eventually be reused. Validate both the
-        // canonical Progman handle and its process identity, not only IsWindow.
+        if (!IsWindow(_desktopHost) ||
+            !IsWindow(_shellView) ||
+            !IsWindow(_progman))
+        {
+            reason = "One or more Explorer desktop HWNDs are no longer valid.";
+            return false;
+        }
+
         if (FindWindow("Progman", null) != _progman)
+        {
+            reason = "The canonical Progman HWND changed.";
             return false;
+        }
 
-        _ = GetWindowThreadProcessId(_progman, out var currentExplorerProcessId);
+        _ = GetWindowThreadProcessId(
+            _progman,
+            out var currentExplorerProcessId);
+
         if (currentExplorerProcessId != _explorerProcessId)
+        {
+            reason =
+                $"Explorer PID changed from {_explorerProcessId} to {currentExplorerProcessId}.";
+            return false;
+        }
+
+        if (!BelongsToExplorer(_shellView) ||
+            !BelongsToExplorer(_desktopHost))
+        {
+            reason = "A desktop HWND is no longer owned by the expected Explorer process.";
+            return false;
+        }
+
+        if (GetParent(_shellView) != _desktopHost)
+        {
+            reason = "SHELLDLL_DefView moved to a different parent.";
+            return false;
+        }
+
+        var currentlyRaised = HasExtendedStyle(
+            _progman,
+            WsExNoRedirectionBitmap);
+
+        switch (Layout)
+        {
+            case DesktopShellLayout.RaisedProgman:
+                if (_desktopHost != _progman || !currentlyRaised)
+                {
+                    reason = "The raised Progman desktop signature changed.";
+                    return false;
+                }
+                break;
+
+            case DesktopShellLayout.ClassicWorkerW:
+                if (!ClassEquals(_desktopHost, "WorkerW"))
+                {
+                    reason = "The classic WorkerW desktop host changed class.";
+                    return false;
+                }
+                break;
+
+            case DesktopShellLayout.ProgmanHosted:
+                if (_desktopHost != _progman || currentlyRaised)
+                {
+                    reason = "The Progman-hosted desktop changed layout.";
+                    return false;
+                }
+                break;
+
+            case DesktopShellLayout.CompatibleUnknown:
+                // Process ownership + parent relationship are the compatibility
+                // contract for an otherwise unknown Explorer layout.
+                break;
+
+            default:
+                reason = "Desktop layout classification is unknown.";
+                return false;
+        }
+
+        return true;
+    }
+
+    private bool BelongsToExplorer(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero || _explorerProcessId == 0)
             return false;
 
-        return GetParent(_shellView) == _desktopHost;
+        _ = GetWindowThreadProcessId(
+            hwnd,
+            out var processId);
+
+        return processId == _explorerProcessId;
+    }
+
+    private static bool HasExtendedStyle(
+        IntPtr hwnd,
+        long style)
+    {
+        if (hwnd == IntPtr.Zero)
+            return false;
+
+        var exStyle = GetWindowLongPtr(
+            hwnd,
+            GwlExStyle).ToInt64();
+
+        return (exStyle & style) == style;
+    }
+
+    private static bool ClassEquals(
+        IntPtr hwnd,
+        string expected)
+    {
+        return string.Equals(
+            GetClassNameText(hwnd),
+            expected,
+            StringComparison.Ordinal);
+    }
+
+    private static string GetClassNameText(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero)
+            return string.Empty;
+
+        var className = new StringBuilder(256);
+        _ = GetClassName(
+            hwnd,
+            className,
+            className.Capacity);
+
+        return className.ToString();
+    }
+
+    private bool HasHostState() =>
+        _progman != IntPtr.Zero ||
+        _shellView != IntPtr.Zero ||
+        _desktopHost != IntPtr.Zero;
+
+    private void LogDiscoverySnapshot(string reason)
+    {
+        CrashLogService.LogMessage(
+            "Desktop layout compatibility snapshot",
+            $"{reason}{Environment.NewLine}" +
+            $"Explorer PID={_explorerProcessId}; detected layout={Layout}{Environment.NewLine}" +
+            $"Progman={DescribeWindow(_progman)}{Environment.NewLine}" +
+            $"SHELLDLL_DefView={DescribeWindow(_shellView)}{Environment.NewLine}" +
+            $"Desktop host={DescribeWindow(_desktopHost)}{Environment.NewLine}" +
+            $"Wallpaper WorkerW={DescribeWindow(_wallpaperWorker)}");
     }
 
     private void LogAttachFailure(IntPtr hwnd, string reason)
@@ -417,6 +723,7 @@ public sealed class DesktopHostService
         CrashLogService.LogMessage(
             "Desktop tile attachment failed",
             $"{reason}{Environment.NewLine}" +
+            $"Layout={Layout}; generation={Generation}{Environment.NewLine}" +
             $"Tile={DescribeWindow(hwnd)}{Environment.NewLine}" +
             $"Desktop host={DescribeWindow(_desktopHost)}{Environment.NewLine}" +
             $"SHELLDLL_DefView={DescribeWindow(_shellView)}");
@@ -427,9 +734,7 @@ public sealed class DesktopHostService
         if (hwnd == IntPtr.Zero)
             return "NULL";
 
-        var className = new StringBuilder(256);
-        _ = GetClassName(hwnd, className, className.Capacity);
-
+        var className = GetClassNameText(hwnd);
         var visible = IsWindowVisible(hwnd);
 
         if (GetWindowRect(hwnd, out var rect))
@@ -464,6 +769,7 @@ public sealed class DesktopHostService
         value * 96.0 / dpi;
 
     private delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
+    private delegate bool EnumChildProc(IntPtr hwnd, IntPtr lParam);
 
     private enum GetWindowCommand : uint
     {
@@ -489,7 +795,9 @@ public sealed class DesktopHostService
     }
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    private static extern IntPtr FindWindow(string? lpClassName, string? lpWindowName);
+    private static extern IntPtr FindWindow(
+        string? lpClassName,
+        string? lpWindowName);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr FindWindowEx(
@@ -500,13 +808,24 @@ public sealed class DesktopHostService
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+    private static extern bool EnumWindows(
+        EnumWindowsProc lpEnumFunc,
+        IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool EnumChildWindows(
+        IntPtr hWndParent,
+        EnumChildProc lpEnumFunc,
+        IntPtr lParam);
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetParent(IntPtr hWnd);
 
     [DllImport("user32.dll")]
-    private static extern IntPtr GetWindow(IntPtr hWnd, GetWindowCommand uCmd);
+    private static extern IntPtr GetWindow(
+        IntPtr hWnd,
+        GetWindowCommand uCmd);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -518,11 +837,14 @@ public sealed class DesktopHostService
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+    private static extern bool GetWindowRect(
+        IntPtr hWnd,
+        out RECT lpRect);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetCursorPos(out POINT lpPoint);
+    private static extern bool GetCursorPos(
+        out POINT lpPoint);
 
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(IntPtr hwnd);
@@ -546,26 +868,41 @@ public sealed class DesktopHostService
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    private static extern bool ShowWindow(
+        IntPtr hWnd,
+        int nCmdShow);
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
-    private static extern IntPtr GetWindowLongPtr64(IntPtr hWnd, int nIndex);
+    private static extern IntPtr GetWindowLongPtr64(
+        IntPtr hWnd,
+        int nIndex);
 
     [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
-    private static extern IntPtr SetWindowLongPtr64(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+    private static extern IntPtr SetWindowLongPtr64(
+        IntPtr hWnd,
+        int nIndex,
+        IntPtr dwNewLong);
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLongW", SetLastError = true)]
-    private static extern int GetWindowLong32(IntPtr hWnd, int nIndex);
+    private static extern int GetWindowLong32(
+        IntPtr hWnd,
+        int nIndex);
 
     [DllImport("user32.dll", EntryPoint = "SetWindowLongW", SetLastError = true)]
-    private static extern int SetWindowLong32(IntPtr hWnd, int nIndex, int dwNewLong);
+    private static extern int SetWindowLong32(
+        IntPtr hWnd,
+        int nIndex,
+        int dwNewLong);
 
     private static IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex) =>
         IntPtr.Size == 8
             ? GetWindowLongPtr64(hWnd, nIndex)
             : new IntPtr(GetWindowLong32(hWnd, nIndex));
 
-    private static IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr value) =>
+    private static IntPtr SetWindowLongPtr(
+        IntPtr hWnd,
+        int nIndex,
+        IntPtr value) =>
         IntPtr.Size == 8
             ? SetWindowLongPtr64(hWnd, nIndex, value)
             : new IntPtr(SetWindowLong32(hWnd, nIndex, value.ToInt32()));

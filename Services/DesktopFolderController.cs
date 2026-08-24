@@ -178,7 +178,7 @@ public sealed class DesktopFolderController
             CrashLogService.LogMessage(
                 "Desktop recovery completed",
                 $"{_recoveryReason}; attempts={_recoveryAttempt}; " +
-                $"host generation={_attachedHostGeneration}.");
+                $"host generation={_attachedHostGeneration}; layout={_desktopHost.Layout}.");
 
             return;
         }
@@ -221,7 +221,7 @@ public sealed class DesktopFolderController
             CrashLogService.LogMessage(
                 "Desktop host generation changed",
                 $"Reanchored tiles to generation {_desktopHost.Generation} " +
-                $"(previous={_attachedHostGeneration}).");
+                $"(previous={_attachedHostGeneration}); layout={_desktopHost.Layout}.");
 
             _attachedHostGeneration = _desktopHost.Generation;
         }

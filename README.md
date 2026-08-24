@@ -147,6 +147,20 @@ changes that do not emit the expected broadcast. Tiles are temporarily hidden
 during the short recovery window so they cannot float above normal applications
 while Explorer is rebuilding its desktop.
 
+Desktop discovery is also layout-aware. SmoothFolder classifies the current
+Explorer hierarchy instead of assuming one fixed WorkerW arrangement:
+
+- `RaisedProgman` — modern Windows 11 raised desktop, detected through
+  `WS_EX_NOREDIRECTIONBITMAP` on `Progman`.
+- `ClassicWorkerW` — `SHELLDLL_DefView` is hosted by a top-level `WorkerW`.
+- `ProgmanHosted` — the icon view is hosted directly by a classic `Progman`.
+- `CompatibleUnknown` — an unrecognized hierarchy that is still structurally
+  valid and fully owned by the same Explorer process.
+
+SmoothFolder no longer sends Explorer's undocumented `0x052C` WorkerW message
+during normal discovery. It is used only as a compatibility wake-up if
+`SHELLDLL_DefView` cannot be found, reducing unnecessary shell mutations.
+
 ## Data and privacy
 
 SmoothFolder works locally.
@@ -205,7 +219,7 @@ The workflow:
 
 Near-term priorities:
 
-1. Harden Explorer/desktop-host compatibility across Windows builds.
+1. Extend Explorer compatibility profiles as new Windows layouts are observed.
 2. Multi-monitor-aware positioning.
 3. Drag-and-drop item reordering.
 4. iOS-style folder pages and page indicators.
