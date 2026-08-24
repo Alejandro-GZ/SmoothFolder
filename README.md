@@ -26,6 +26,7 @@ Windows taskbar and Alt+Tab/task-switcher surfaces.
 - High-resolution icon extraction through the Windows Shell.
 - Size-aware icon selection for sharper small folder previews.
 - Right-click actions for renaming and removing application entries.
+- Drag-and-drop reordering of applications inside an open folder.
 - Create, rename, move, tint, and delete desktop folders.
 - Persistent configuration under `%LOCALAPPDATA%\SmoothFolder`.
 - Background-app behavior:
@@ -86,9 +87,10 @@ On first launch, SmoothFolder creates a `Games` folder.
 1. Drag Steam, Epic, Windows, or executable shortcuts onto the folder.
 2. Click the folder to open it.
 3. Click an item to launch it.
-4. Right-click an item to rename its displayed name or remove it from the folder.
-5. Drag the folder itself to reposition it.
-6. Right-click the closed folder for folder-level actions such as rename,
+4. Drag an item onto another position to reorder the folder.
+5. Right-click an item to rename its displayed name or remove it from the folder.
+6. Drag the folder itself to reposition it.
+7. Right-click the closed folder for folder-level actions such as rename,
    glass tint, creating another folder, or exiting SmoothFolder.
 
 Removing an item from SmoothFolder **does not uninstall or delete the game**.
@@ -234,7 +236,6 @@ The workflow:
   Windows builds or with third-party desktop replacements.
 - Desktop hosting still relies on Explorer implementation details, so future
   Windows builds may require additional host-discovery compatibility rules.
-- Items cannot yet be reordered by dragging them within an open folder.
 - Large folders currently scroll rather than using iOS-style pages.
 - Monitor-relative tile positions are persisted by display device name. If a
   previously used display is disconnected, the tile falls back to an available
@@ -247,11 +248,10 @@ The workflow:
 Near-term priorities:
 
 1. Extend Explorer compatibility profiles as new Windows layouts are observed.
-2. Drag-and-drop item reordering.
-3. iOS-style folder pages and page indicators.
-4. Improved glass blur while preserving transparent rounded corners.
-5. Startup-with-Windows support.
-6. Steam/Epic library import and higher-quality artwork fallbacks.
+2. iOS-style folder pages and page indicators.
+3. Improved glass blur while preserving transparent rounded corners.
+4. Startup-with-Windows support.
+5. Steam/Epic library import and higher-quality artwork fallbacks.
 
 ## Project structure
 

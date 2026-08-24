@@ -13,6 +13,9 @@ namespace SmoothFolder.Views;
 
 public partial class FolderPopupWindow : Window
 {
+    private const string InternalItemDragFormat =
+        "SmoothFolder.InternalAppItemId";
+
     private readonly FolderConfig _folder;
     private readonly IconService _icons;
     private readonly LauncherService _launcher;
@@ -22,7 +25,14 @@ public partial class FolderPopupWindow : Window
 
     private bool _isClosing;
     private bool _allowClose;
+    private bool _internalDragInProgress;
+
     private Window? _anchorTile;
+    private AppItem? _pressedItem;
+    private Point _pressedItemPosition;
+    private Border? _dropIndicatorCard;
+    private Border? _dropIndicatorMarker;
+    private int? _dropInsertionIndex;
 
     public FolderPopupWindow(
         FolderConfig folder,
@@ -55,12 +65,8 @@ public partial class FolderPopupWindow : Window
                 RequestClose();
         };
 
-        DragOver += (_, e) =>
-        {
-            if (e.Data.GetDataPresent(DataFormats.FileDrop))
-                e.Effects = DragDropEffects.Copy;
-        };
-
+        DragOver += OnPopupDragOver;
+        DragLeave += OnPopupDragLeave;
         Drop += OnDrop;
     }
 
@@ -214,6 +220,8 @@ public partial class FolderPopupWindow : Window
 
     private void RefreshItems()
     {
+        ClearDropIndicator();
+        _pressedItem = null;
         ItemsPanel.Children.Clear();
 
         foreach (var item in _folder.Items)
@@ -262,47 +270,392 @@ public partial class FolderPopupWindow : Window
         stack.Children.Add(icon);
         stack.Children.Add(label);
 
-        var border = new Border
+        var card = new Border
         {
-            Width = 108,
-            Height = 112,
             Padding = new Thickness(6),
-            Margin = new Thickness(4),
             CornerRadius = new CornerRadius(18),
             Background = Brushes.Transparent,
             Child = stack,
-            Cursor = Cursors.Hand
+            Cursor = Cursors.Hand,
+            AllowDrop = true
         };
 
-        border.MouseEnter += (_, _) =>
+        // The marker lives in a non-hit-testable overlay so it does not change
+        // card layout while the pointer crosses insertion positions.
+        var marker = new Border
         {
-            border.Background = new SolidColorBrush(Color.FromArgb(40, 255, 255, 255));
+            Width = 3,
+            Height = 80,
+            CornerRadius = new CornerRadius(1.5),
+            Background = new SolidColorBrush(
+                Color.FromArgb(220, 255, 255, 255)),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Center,
+            Visibility = Visibility.Collapsed,
+            IsHitTestVisible = false
         };
 
-        border.MouseLeave += (_, _) => border.Background = Brushes.Transparent;
-
-        border.MouseLeftButtonUp += (_, _) =>
+        var root = new Grid
         {
-            try
+            Width = 108,
+            Height = 112,
+            Margin = new Thickness(4)
+        };
+
+        root.Children.Add(card);
+        root.Children.Add(marker);
+
+        card.MouseEnter += (_, _) =>
+        {
+            if (!ReferenceEquals(_dropIndicatorCard, card))
             {
-                _launcher.Launch(item.Path);
-                RequestClose();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(
-                    ex.Message,
-                    "Could not open item",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
+                card.Background = new SolidColorBrush(
+                    Color.FromArgb(40, 255, 255, 255));
             }
         };
+
+        card.MouseLeave += (_, _) =>
+        {
+            if (!ReferenceEquals(_dropIndicatorCard, card))
+                card.Background = Brushes.Transparent;
+        };
+
+        card.PreviewMouseLeftButtonDown += (_, e) =>
+        {
+            if (e.ChangedButton != MouseButton.Left)
+                return;
+
+            _pressedItem = item;
+            _pressedItemPosition = e.GetPosition(this);
+        };
+
+        card.PreviewMouseMove += (_, e) =>
+            TryBeginItemDrag(item, card, e);
+
+        card.PreviewMouseLeftButtonUp += (_, e) =>
+        {
+            if (e.ChangedButton != MouseButton.Left ||
+                _internalDragInProgress ||
+                !ReferenceEquals(_pressedItem, item))
+            {
+                return;
+            }
+
+            _pressedItem = null;
+            LaunchItem(item);
+            e.Handled = true;
+        };
+
+        card.DragOver += (_, e) =>
+            HandleItemDragOver(item, card, marker, e);
+
+        card.DragLeave += (_, e) =>
+        {
+            if (!IsInternalItemDrag(e.Data))
+                return;
+
+            // DragLeave can occur while moving from the card to its overlay.
+            // Only clear when the pointer really left the card bounds.
+            var point = e.GetPosition(card);
+
+            if (point.X < 0 ||
+                point.Y < 0 ||
+                point.X > card.ActualWidth ||
+                point.Y > card.ActualHeight)
+            {
+                ClearDropIndicator();
+            }
+        };
+
+        card.Drop += (_, e) =>
+            HandleItemDrop(item, card, e);
 
         // Standard WPF ContextMenu is attached to the whole item card, so
         // right-click works consistently on the icon, label, or empty padding.
-        border.ContextMenu = BuildItemContextMenu(item);
+        card.ContextMenu = BuildItemContextMenu(item);
 
-        return border;
+        return root;
+    }
+
+    private void LaunchItem(AppItem item)
+    {
+        try
+        {
+            _launcher.Launch(item.Path);
+            RequestClose();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                ex.Message,
+                "Could not open item",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+    }
+
+    private void TryBeginItemDrag(
+        AppItem item,
+        Border card,
+        MouseEventArgs e)
+    {
+        if (_internalDragInProgress ||
+            e.LeftButton != MouseButtonState.Pressed ||
+            !ReferenceEquals(_pressedItem, item))
+        {
+            return;
+        }
+
+        var current = e.GetPosition(this);
+
+        if (Math.Abs(current.X - _pressedItemPosition.X) <
+                SystemParameters.MinimumHorizontalDragDistance &&
+            Math.Abs(current.Y - _pressedItemPosition.Y) <
+                SystemParameters.MinimumVerticalDragDistance)
+        {
+            return;
+        }
+
+        _internalDragInProgress = true;
+        _pressedItem = null;
+
+        var previousOpacity = card.Opacity;
+        card.Opacity = 0.52;
+
+        try
+        {
+            var data = new DataObject(
+                InternalItemDragFormat,
+                item.Id);
+
+            _ = DragDrop.DoDragDrop(
+                card,
+                data,
+                DragDropEffects.Move);
+        }
+        finally
+        {
+            card.Opacity = previousOpacity;
+            _internalDragInProgress = false;
+            ClearDropIndicator();
+        }
+
+        e.Handled = true;
+    }
+
+    private void HandleItemDragOver(
+        AppItem targetItem,
+        Border targetCard,
+        Border marker,
+        DragEventArgs e)
+    {
+        if (!TryGetInternalDraggedItem(
+                e.Data,
+                out var draggedItem))
+        {
+            return;
+        }
+
+        e.Effects = DragDropEffects.Move;
+        e.Handled = true;
+
+        if (ReferenceEquals(draggedItem, targetItem))
+        {
+            ClearDropIndicator();
+            return;
+        }
+
+        var targetIndex =
+            _folder.Items.IndexOf(targetItem);
+
+        if (targetIndex < 0)
+        {
+            ClearDropIndicator();
+            return;
+        }
+
+        var pointer = e.GetPosition(targetCard);
+        var insertAfter =
+            pointer.X >= targetCard.ActualWidth / 2.0;
+
+        _dropInsertionIndex =
+            targetIndex + (insertAfter ? 1 : 0);
+
+        SetDropIndicator(
+            targetCard,
+            marker,
+            insertAfter);
+    }
+
+    private void HandleItemDrop(
+        AppItem targetItem,
+        Border targetCard,
+        DragEventArgs e)
+    {
+        if (!TryGetInternalDraggedItem(
+                e.Data,
+                out var draggedItem))
+        {
+            return;
+        }
+
+        e.Effects = DragDropEffects.Move;
+        e.Handled = true;
+
+        if (ReferenceEquals(draggedItem, targetItem))
+        {
+            ClearDropIndicator();
+            return;
+        }
+
+        var insertionIndex =
+            _dropInsertionIndex ??
+            _folder.Items.IndexOf(targetItem);
+
+        ReorderItem(
+            draggedItem,
+            insertionIndex);
+    }
+
+    private void OnPopupDragOver(
+        object sender,
+        DragEventArgs e)
+    {
+        if (IsInternalItemDrag(e.Data))
+        {
+            // If the pointer is not currently over an item card, dropping on
+            // the remaining folder surface moves the item to the end.
+            e.Effects = DragDropEffects.Move;
+
+            if (_dropIndicatorCard is null)
+                _dropInsertionIndex = _folder.Items.Count;
+
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Data.GetDataPresent(DataFormats.FileDrop))
+        {
+            e.Effects = DragDropEffects.Copy;
+            e.Handled = true;
+        }
+    }
+
+    private void OnPopupDragLeave(
+        object sender,
+        DragEventArgs e)
+    {
+        if (!IsInternalItemDrag(e.Data))
+            return;
+
+        var point = e.GetPosition(this);
+
+        if (point.X < 0 ||
+            point.Y < 0 ||
+            point.X > ActualWidth ||
+            point.Y > ActualHeight)
+        {
+            ClearDropIndicator();
+        }
+    }
+
+    private bool TryGetInternalDraggedItem(
+        IDataObject data,
+        out AppItem item)
+    {
+        item = null!;
+
+        if (!data.GetDataPresent(InternalItemDragFormat))
+            return false;
+
+        if (data.GetData(InternalItemDragFormat) is not string itemId)
+            return false;
+
+        item = _folder.Items.FirstOrDefault(
+            x => string.Equals(
+                x.Id,
+                itemId,
+                StringComparison.Ordinal))!;
+
+        return item is not null;
+    }
+
+    private static bool IsInternalItemDrag(IDataObject data) =>
+        data.GetDataPresent(InternalItemDragFormat);
+
+    private void SetDropIndicator(
+        Border card,
+        Border marker,
+        bool insertAfter)
+    {
+        if (!ReferenceEquals(_dropIndicatorMarker, marker))
+            ClearDropIndicator();
+
+        _dropIndicatorCard = card;
+        _dropIndicatorMarker = marker;
+
+        card.Background = new SolidColorBrush(
+            Color.FromArgb(30, 255, 255, 255));
+
+        marker.HorizontalAlignment =
+            insertAfter
+                ? HorizontalAlignment.Right
+                : HorizontalAlignment.Left;
+
+        marker.Visibility = Visibility.Visible;
+    }
+
+    private void ClearDropIndicator()
+    {
+        if (_dropIndicatorMarker is not null)
+            _dropIndicatorMarker.Visibility = Visibility.Collapsed;
+
+        if (_dropIndicatorCard is not null)
+            _dropIndicatorCard.Background = Brushes.Transparent;
+
+        _dropIndicatorCard = null;
+        _dropIndicatorMarker = null;
+        _dropInsertionIndex = null;
+    }
+
+    private void ReorderItem(
+        AppItem item,
+        int insertionIndex)
+    {
+        var oldIndex = _folder.Items.IndexOf(item);
+        if (oldIndex < 0)
+            return;
+
+        insertionIndex = Math.Clamp(
+            insertionIndex,
+            0,
+            _folder.Items.Count);
+
+        // insertionIndex describes a slot in the list before the source item
+        // is removed. Removing an earlier source shifts later slots left.
+        if (insertionIndex > oldIndex)
+            insertionIndex--;
+
+        if (insertionIndex == oldIndex)
+        {
+            ClearDropIndicator();
+            return;
+        }
+
+        _folder.Items.RemoveAt(oldIndex);
+        _folder.Items.Insert(
+            Math.Clamp(
+                insertionIndex,
+                0,
+                _folder.Items.Count),
+            item);
+
+        _save();
+        RefreshItems();
+
+        // The compact 3x3 preview reflects the first nine items, so it must be
+        // refreshed immediately after every successful reorder.
+        _refreshTile();
     }
 
     private ContextMenu BuildItemContextMenu(AppItem item)
@@ -363,6 +716,20 @@ public partial class FolderPopupWindow : Window
 
     private void OnDrop(object sender, DragEventArgs e)
     {
+        if (TryGetInternalDraggedItem(
+                e.Data,
+                out var draggedItem))
+        {
+            ReorderItem(
+                draggedItem,
+                _dropInsertionIndex ??
+                _folder.Items.Count);
+
+            e.Effects = DragDropEffects.Move;
+            e.Handled = true;
+            return;
+        }
+
         if (!e.Data.GetDataPresent(DataFormats.FileDrop))
             return;
 
@@ -387,6 +754,9 @@ public partial class FolderPopupWindow : Window
         _save();
         RefreshItems();
         _refreshTile();
+
+        e.Effects = DragDropEffects.Copy;
+        e.Handled = true;
     }
 
     private void DragHandle_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
