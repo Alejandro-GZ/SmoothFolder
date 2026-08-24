@@ -182,6 +182,14 @@ public partial class FolderPopupWindow : Window
             new ScreenPixelPoint(left, top));
     }
 
+    public void RepositionForCurrentMonitor()
+    {
+        if (!IsVisible || _anchorTile is null)
+            return;
+
+        PositionNearAnchorPixels();
+    }
+
     public void RequestClose()
     {
         if (_isClosing || _allowClose)

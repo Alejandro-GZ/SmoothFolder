@@ -176,6 +176,13 @@ compact tile, so the popup opens on the correct display and automatically flips
 above the tile when there is not enough space below it. Legacy `X` / `Y`
 configuration values are migrated automatically when a folder is next placed.
 
+Live topology changes are debounced and reconciled while SmoothFolder is
+running. This covers monitor hot-plug, resolution/layout changes, scale changes
+that alter the effective desktop geometry, and work-area changes such as moving
+the taskbar. If a persisted monitor disappears, its folders are moved to the
+current primary display using the same monitor-relative offset and then clamped
+to that display's work area. Open folder popups are reflowed with their anchor.
+
 ## Data and privacy
 
 SmoothFolder works locally.
@@ -240,12 +247,11 @@ The workflow:
 Near-term priorities:
 
 1. Extend Explorer compatibility profiles as new Windows layouts are observed.
-2. Harden monitor hot-plug / topology-change recovery.
-3. Drag-and-drop item reordering.
-4. iOS-style folder pages and page indicators.
-5. Improved glass blur while preserving transparent rounded corners.
-6. Startup-with-Windows support.
-7. Steam/Epic library import and higher-quality artwork fallbacks.
+2. Drag-and-drop item reordering.
+3. iOS-style folder pages and page indicators.
+4. Improved glass blur while preserving transparent rounded corners.
+5. Startup-with-Windows support.
+6. Steam/Epic library import and higher-quality artwork fallbacks.
 
 ## Project structure
 

@@ -194,6 +194,27 @@ public static class MonitorService
             SwpNoActivate);
     }
 
+    public static string GetTopologyFingerprint()
+    {
+        var monitors = GetMonitors()
+            .OrderBy(x => x.DeviceName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(x => x.Bounds.Left)
+            .ThenBy(x => x.Bounds.Top)
+            .ToArray();
+
+        if (monitors.Length == 0)
+            return "<no-monitors>";
+
+        return string.Join(
+            "|",
+            monitors.Select(
+                x => $"{x.DeviceName};" +
+                     $"{x.Bounds.Left},{x.Bounds.Top},{x.Bounds.Right},{x.Bounds.Bottom};" +
+                     $"{x.WorkArea.Left},{x.WorkArea.Top},{x.WorkArea.Right},{x.WorkArea.Bottom};" +
+                     $"{x.DpiX},{x.DpiY};" +
+                     $"{(x.IsPrimary ? 1 : 0)}"));
+    }
+
     public static string DescribeDesktop()
     {
         var monitors = GetMonitors();

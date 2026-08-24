@@ -28,6 +28,7 @@ public sealed class DesktopFolderController
     private readonly ShellLifecycleService _shellLifecycle;
     private readonly DispatcherTimer _healthTimer;
     private readonly DispatcherTimer _recoveryTimer;
+    private readonly DispatcherTimer _displayChangeTimer;
 
     private readonly List<FolderTileWindow> _windows = [];
     private AppConfig _config = new();
@@ -35,12 +36,14 @@ public sealed class DesktopFolderController
     private long _attachedHostGeneration = -1;
     private int _recoveryAttempt;
     private string _recoveryReason = string.Empty;
+    private string _monitorTopologyFingerprint = string.Empty;
     private bool _stopped;
 
     public DesktopFolderController()
     {
         _shellLifecycle = new ShellLifecycleService();
         _shellLifecycle.ExplorerRestarted += OnExplorerRestarted;
+        _shellLifecycle.DisplayConfigurationChanged += OnDisplayConfigurationChanged;
 
         _healthTimer = new DispatcherTimer
         {
@@ -50,6 +53,16 @@ public sealed class DesktopFolderController
 
         _recoveryTimer = new DispatcherTimer();
         _recoveryTimer.Tick += (_, _) => TryRecoverDesktopHost();
+
+        _displayChangeTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(650)
+        };
+        _displayChangeTimer.Tick += (_, _) =>
+        {
+            _displayChangeTimer.Stop();
+            ReconcileMonitorTopology();
+        };
     }
 
     public void Start()
@@ -67,6 +80,9 @@ public sealed class DesktopFolderController
         CrashLogService.LogMessage(
             "SmoothFolder startup",
             $"Loading {_config.Folders.Count} desktop folder(s).");
+
+        _monitorTopologyFingerprint =
+            MonitorService.GetTopologyFingerprint();
 
         CrashLogService.LogMessage(
             "Monitor topology",
@@ -132,6 +148,74 @@ public sealed class DesktopFolderController
 
         _desktopHost.InvalidateHost("TaskbarCreated was broadcast by Explorer");
         BeginDesktopRecovery("Explorer TaskbarCreated event");
+    }
+
+    private void OnDisplayConfigurationChanged(
+        object? sender,
+        EventArgs e)
+    {
+        if (_stopped)
+            return;
+
+        // Debounce the burst of WM_DISPLAYCHANGE / WM_SETTINGCHANGE messages
+        // emitted by hot-plug, resolution, scale and taskbar/work-area changes.
+        _displayChangeTimer.Stop();
+        _displayChangeTimer.Start();
+    }
+
+    private void ReconcileMonitorTopology()
+    {
+        if (_stopped)
+            return;
+
+        var fingerprint =
+            MonitorService.GetTopologyFingerprint();
+
+        if (string.Equals(
+                fingerprint,
+                _monitorTopologyFingerprint,
+                StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var previousFingerprint =
+            _monitorTopologyFingerprint;
+
+        _monitorTopologyFingerprint =
+            fingerprint;
+
+        CrashLogService.LogMessage(
+            "Monitor topology changed",
+            $"Previous={previousFingerprint}{Environment.NewLine}" +
+            $"Current={fingerprint}{Environment.NewLine}" +
+            MonitorService.DescribeDesktop());
+
+        var total = 0;
+        var attached = 0;
+
+        foreach (var window in _windows.ToArray())
+        {
+            if (!DesktopHostService.IsWindowAlive(window))
+                continue;
+
+            total++;
+
+            if (window.ReconcileDisplayConfiguration())
+                attached++;
+        }
+
+        Save();
+
+        CrashLogService.LogMessage(
+            "Monitor topology reconciliation completed",
+            $"tiles={attached}/{total}.");
+
+        if (attached != total)
+        {
+            BeginDesktopRecovery(
+                $"Monitor topology changed but only {attached}/{total} tile(s) reattached");
+        }
     }
 
     private void BeginDesktopRecovery(string reason)
@@ -375,8 +459,10 @@ public sealed class DesktopFolderController
 
         _healthTimer.Stop();
         _recoveryTimer.Stop();
+        _displayChangeTimer.Stop();
 
         _shellLifecycle.ExplorerRestarted -= OnExplorerRestarted;
+        _shellLifecycle.DisplayConfigurationChanged -= OnDisplayConfigurationChanged;
         _shellLifecycle.Dispose();
 
         Save();

@@ -18,15 +18,29 @@ public static class DesktopPositionService
         var monitor = MonitorService.FindByDeviceName(
             folder.MonitorDeviceName);
 
-        if (monitor is not null &&
-            folder.MonitorOffsetX is not null &&
+        if (folder.MonitorOffsetX is not null &&
             folder.MonitorOffsetY is not null)
         {
+            if (monitor is not null)
+            {
+                return ClampToWorkArea(
+                    monitor,
+                    new ScreenPixelPoint(
+                        monitor.Bounds.Left + folder.MonitorOffsetX.Value,
+                        monitor.Bounds.Top + folder.MonitorOffsetY.Value));
+            }
+
+            // The persisted monitor was disconnected. Preserve the folder's
+            // monitor-relative offset on the current primary display and clamp
+            // it to the available work area. Capture() will persist the new
+            // monitor identity after the HWND is moved successfully.
+            var primary = MonitorService.GetPrimary();
+
             return ClampToWorkArea(
-                monitor,
+                primary,
                 new ScreenPixelPoint(
-                    monitor.Bounds.Left + folder.MonitorOffsetX.Value,
-                    monitor.Bounds.Top + folder.MonitorOffsetY.Value));
+                    primary.Bounds.Left + folder.MonitorOffsetX.Value,
+                    primary.Bounds.Top + folder.MonitorOffsetY.Value));
         }
 
         return ResolveLegacy(folder);

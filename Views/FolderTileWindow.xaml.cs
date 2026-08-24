@@ -94,6 +94,16 @@ public partial class FolderTileWindow : Window
         return true;
     }
 
+    public bool ReconcileDisplayConfiguration()
+    {
+        var attached = EnsureDesktopAttachment();
+
+        if (attached && _popup is { IsVisible: true })
+            _popup.RepositionForCurrentMonitor();
+
+        return attached;
+    }
+
     public void SetDesktopRecoveryMode(bool recovering)
     {
         _desktopRecoveryMode = recovering;

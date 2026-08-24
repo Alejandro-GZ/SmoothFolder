@@ -16,11 +16,15 @@ public sealed class ShellLifecycleService : IDisposable
     private const long WsExToolWindow = 0x00000080L;
     private const long WsExNoActivate = 0x08000000L;
 
+    private const int WmSettingChange = 0x001A;
+    private const int WmDisplayChange = 0x007E;
+
     private readonly HwndSource _source;
     private readonly uint _taskbarCreatedMessage;
     private bool _disposed;
 
     public event EventHandler? ExplorerRestarted;
+    public event EventHandler? DisplayConfigurationChanged;
 
     public ShellLifecycleService()
     {
@@ -69,6 +73,15 @@ public sealed class ShellLifecycleService : IDisposable
                 "Received TaskbarCreated. Explorer's desktop hierarchy will be rediscovered.");
 
             ExplorerRestarted?.Invoke(this, EventArgs.Empty);
+            return IntPtr.Zero;
+        }
+
+        if (msg == WmDisplayChange || msg == WmSettingChange)
+        {
+            // Windows can emit several display/work-area messages for one user
+            // action. The controller debounces and compares the actual monitor
+            // topology before moving any tile.
+            DisplayConfigurationChanged?.Invoke(this, EventArgs.Empty);
         }
 
         return IntPtr.Zero;
