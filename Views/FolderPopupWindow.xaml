@@ -8,12 +8,17 @@
         ShowInTaskbar="False"
         Background="#01000000"
         AllowDrop="True">
-    <Border Margin="0"
+    <Border x:Name="PopupCard"
+            Margin="0"
             Padding="24"
             CornerRadius="30"
+            RenderTransformOrigin="0.5,0.5"
             Background="#CB121821"
             BorderBrush="#55FFFFFF"
             BorderThickness="1">
+        <Border.RenderTransform>
+            <ScaleTransform ScaleX="1" ScaleY="1"/>
+        </Border.RenderTransform>
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>

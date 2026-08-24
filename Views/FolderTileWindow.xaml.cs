@@ -23,6 +23,7 @@ public partial class FolderTileWindow : Window
 
     private Point _mouseDown;
     private bool _isDragging;
+    private FolderPopupWindow? _popup;
 
     public FolderTileWindow(
         FolderConfig folder,
@@ -137,15 +138,43 @@ public partial class FolderTileWindow : Window
 
     private void OpenFolder()
     {
-        var popup = new FolderPopupWindow(
-            _folder,
-            _icons,
-            _launcher,
-            _importer,
-            _save,
-            Refresh);
+        try
+        {
+            if (_popup is { IsVisible: true })
+            {
+                _popup.Close();
+                return;
+            }
 
-        popup.ShowNear(this);
+            var popup = new FolderPopupWindow(
+                _folder,
+                _icons,
+                _launcher,
+                _importer,
+                _save,
+                Refresh);
+
+            _popup = popup;
+            popup.Closed += (_, _) =>
+            {
+                if (ReferenceEquals(_popup, popup))
+                    _popup = null;
+            };
+
+            popup.ShowNear(this);
+        }
+        catch (Exception ex)
+        {
+            CrashLogService.Log(ex, $"Opening folder '{_folder.Name}'");
+            _popup = null;
+
+            MessageBox.Show(
+                $"SmoothFolder could not open this folder.\n\n" +
+                $"A diagnostic log was written to:\n{CrashLogService.LogPath}",
+                "SmoothFolder",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
     }
 
     private void OnDragEnter(object sender, DragEventArgs e)

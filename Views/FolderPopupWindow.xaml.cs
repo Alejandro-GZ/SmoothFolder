@@ -45,7 +45,6 @@ public partial class FolderPopupWindow : Window
         };
 
         SourceInitialized += (_, _) => WindowEffects.ApplyPopupEffects(this);
-        Deactivated += (_, _) => Close();
         PreviewKeyDown += (_, e) =>
         {
             if (e.Key == Key.Escape)
@@ -63,6 +62,8 @@ public partial class FolderPopupWindow : Window
 
     public void ShowNear(Window tile)
     {
+        Owner = tile;
+
         var work = SystemParameters.WorkArea;
 
         var left = tile.Left + (tile.Width / 2) - (Width / 2);
@@ -257,9 +258,11 @@ public partial class FolderPopupWindow : Window
     {
         Opacity = 0;
 
-        var scale = new ScaleTransform(0.94, 0.94);
-        RenderTransformOrigin = new Point(0.5, 0.5);
-        RenderTransform = scale;
+        if (PopupCard.RenderTransform is not ScaleTransform scale)
+            return;
+
+        scale.ScaleX = 0.94;
+        scale.ScaleY = 0.94;
 
         var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
 

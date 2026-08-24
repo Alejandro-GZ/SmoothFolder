@@ -21,11 +21,14 @@ public static class WindowEffects
         if (hwnd == IntPtr.Zero)
             return;
 
-        var corner = DWMWCP_ROUND;
-        DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref corner, sizeof(int));
-
-        var backdrop = DWMSBT_TRANSIENTWINDOW;
-        DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, ref backdrop, sizeof(int));
+        // All DWM decoration is optional. The popup must remain usable even if
+        // a Windows build, graphics configuration, or compatibility layer does
+        // not support one of these attributes.
+        if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
+        {
+            TrySetDwmAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND);
+            TrySetDwmAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, DWMSBT_TRANSIENTWINDOW);
+        }
 
         HideFromAltTab(hwnd);
     }
@@ -39,8 +42,35 @@ public static class WindowEffects
 
     private static void HideFromAltTab(IntPtr hwnd)
     {
-        var exStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE).ToInt64();
-        SetWindowLongPtr(hwnd, GWL_EXSTYLE, new IntPtr(exStyle | WS_EX_TOOLWINDOW));
+        try
+        {
+            var exStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE).ToInt64();
+            SetWindowLongPtr(hwnd, GWL_EXSTYLE, new IntPtr(exStyle | WS_EX_TOOLWINDOW));
+        }
+        catch (EntryPointNotFoundException)
+        {
+            // Cosmetic integration only; never make window creation fail.
+        }
+        catch (DllNotFoundException)
+        {
+            // Cosmetic integration only; never make window creation fail.
+        }
+    }
+
+    private static void TrySetDwmAttribute(IntPtr hwnd, int attribute, int value)
+    {
+        try
+        {
+            DwmSetWindowAttribute(hwnd, attribute, ref value, sizeof(int));
+        }
+        catch (EntryPointNotFoundException)
+        {
+            // Optional visual effect.
+        }
+        catch (DllNotFoundException)
+        {
+            // Optional visual effect.
+        }
     }
 
     [DllImport("dwmapi.dll")]
