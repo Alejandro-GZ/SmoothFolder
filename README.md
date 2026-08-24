@@ -177,7 +177,10 @@ This currently contains:
 
 - `config.json` — folder layout and settings.
 - `Items\` — private copies of imported `.lnk` / `.url` shortcuts.
-- `Logs\` — diagnostic and desktop-host logs.
+- `Logs\` — bounded diagnostic and desktop-host logs. The active
+  `smoothfolder.log` rotates at approximately 512 KiB and SmoothFolder retains
+  two previous files (`smoothfolder.1.log` and `smoothfolder.2.log`), keeping
+  the normal log footprint around 1.5 MiB or less.
 
 SmoothFolder does not need a cloud service for its core functionality.
 
