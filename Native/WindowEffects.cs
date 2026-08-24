@@ -14,6 +14,13 @@ public static class WindowEffects
 
     private const int GWL_EXSTYLE = -20;
     private const long WS_EX_TOOLWINDOW = 0x00000080L;
+    private const long WS_EX_APPWINDOW = 0x00040000L;
+
+    private const uint SWP_NOSIZE = 0x0001;
+    private const uint SWP_NOMOVE = 0x0002;
+    private const uint SWP_NOZORDER = 0x0004;
+    private const uint SWP_NOACTIVATE = 0x0010;
+    private const uint SWP_FRAMECHANGED = 0x0020;
 
     public static void ApplyPopupEffects(Window window, double cornerRadius = 30)
     {
@@ -48,15 +55,37 @@ public static class WindowEffects
         try
         {
             var exStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE).ToInt64();
-            SetWindowLongPtr(hwnd, GWL_EXSTYLE, new IntPtr(exStyle | WS_EX_TOOLWINDOW));
+
+            // TOOLWINDOW tells both the Windows shell and third-party shell
+            // replacements that this HWND is auxiliary UI. APPWINDOW is
+            // explicitly removed so the folder tiles/popups don't become
+            // taskbar or "open app" entries.
+            exStyle |= WS_EX_TOOLWINDOW;
+            exStyle &= ~WS_EX_APPWINDOW;
+
+            SetWindowLongPtr(hwnd, GWL_EXSTYLE, new IntPtr(exStyle));
+
+            // Refresh shell-visible non-client metadata after changing styles.
+            SetWindowPos(
+                hwnd,
+                IntPtr.Zero,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE |
+                SWP_NOSIZE |
+                SWP_NOZORDER |
+                SWP_NOACTIVATE |
+                SWP_FRAMECHANGED);
         }
         catch (EntryPointNotFoundException)
         {
-            // Cosmetic integration only; never make window creation fail.
+            // Shell integration must never make window creation fail.
         }
         catch (DllNotFoundException)
         {
-            // Cosmetic integration only; never make window creation fail.
+            // Shell integration must never make window creation fail.
         }
     }
 
@@ -146,6 +175,16 @@ public static class WindowEffects
 
     [DllImport("gdi32.dll")]
     private static extern bool DeleteObject(IntPtr hObject);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetWindowPos(
+        IntPtr hWnd,
+        IntPtr hWndInsertAfter,
+        int X,
+        int Y,
+        int cx,
+        int cy,
+        uint uFlags);
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
     private static extern IntPtr GetWindowLongPtr64(IntPtr hWnd, int nIndex);

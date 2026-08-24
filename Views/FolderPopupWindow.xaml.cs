@@ -22,6 +22,7 @@ public partial class FolderPopupWindow : Window
 
     private bool _isClosing;
     private bool _allowClose;
+    private Window? _anchorTile;
 
     public FolderPopupWindow(
         FolderConfig folder,
@@ -70,33 +71,21 @@ public partial class FolderPopupWindow : Window
     public void ShowNear(Window tile)
     {
         Owner = tile;
+        _anchorTile = tile;
 
         var work = SystemParameters.WorkArea;
         var left = tile.Left + (tile.Width / 2) - (Width / 2);
         var top = tile.Top + tile.Height + 8;
-        var opensBelow = true;
 
         left = Math.Max(work.Left + 12, Math.Min(left, work.Right - Width - 12));
 
         if (top + Height > work.Bottom - 12)
-        {
             top = tile.Top - Height - 8;
-            opensBelow = false;
-        }
 
         top = Math.Max(work.Top + 12, top);
 
         Left = left;
         Top = top;
-
-        // Scale from the folder's horizontal position, which makes the popup
-        // feel attached to the desktop folder rather than appearing centrally.
-        var originX = Math.Clamp(
-            (tile.Left + (tile.Width / 2) - Left) / Width,
-            0.08,
-            0.92);
-
-        PopupRoot.RenderTransformOrigin = new Point(originX, opensBelow ? 0.03 : 0.97);
 
         Show();
         Activate();
@@ -326,48 +315,74 @@ public partial class FolderPopupWindow : Window
 
     private void AnimateOpen()
     {
-        Opacity = 0;
-
-        if (PopupRoot.RenderTransform is not ScaleTransform scale)
+        if (!TryGetPopupTransforms(out var scale, out var translate))
             return;
 
-        scale.ScaleX = 0.80;
-        scale.ScaleY = 0.80;
+        var travel = GetAnchorTravel();
 
-        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        Opacity = 0.04;
+        scale.ScaleX = 0.18;
+        scale.ScaleY = 0.18;
+        translate.X = travel.X;
+        translate.Y = travel.Y;
+
+        var spring = new BackEase
+        {
+            Amplitude = 0.16,
+            EasingMode = EasingMode.EaseOut
+        };
+        var positionEase = new QuinticEase { EasingMode = EasingMode.EaseOut };
 
         BeginAnimation(
             OpacityProperty,
-            new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(180))
+            new DoubleAnimation(0.04, 1, TimeSpan.FromMilliseconds(190))
             {
-                EasingFunction = ease
+                EasingFunction = positionEase
             });
 
         scale.BeginAnimation(
             ScaleTransform.ScaleXProperty,
-            new DoubleAnimation(0.80, 1, TimeSpan.FromMilliseconds(220))
+            new DoubleAnimation(0.18, 1, TimeSpan.FromMilliseconds(310))
             {
-                EasingFunction = ease
+                EasingFunction = spring
             });
 
         scale.BeginAnimation(
             ScaleTransform.ScaleYProperty,
-            new DoubleAnimation(0.80, 1, TimeSpan.FromMilliseconds(220))
+            new DoubleAnimation(0.18, 1, TimeSpan.FromMilliseconds(310))
             {
-                EasingFunction = ease
+                EasingFunction = spring
+            });
+
+        translate.BeginAnimation(
+            TranslateTransform.XProperty,
+            new DoubleAnimation(travel.X, 0, TimeSpan.FromMilliseconds(285))
+            {
+                EasingFunction = positionEase
+            });
+
+        translate.BeginAnimation(
+            TranslateTransform.YProperty,
+            new DoubleAnimation(travel.Y, 0, TimeSpan.FromMilliseconds(285))
+            {
+                EasingFunction = positionEase
             });
     }
 
     private void AnimateClose(Action completed)
     {
-        if (PopupRoot.RenderTransform is not ScaleTransform scale)
+        if (!TryGetPopupTransforms(out var scale, out var translate))
         {
             completed();
             return;
         }
 
+        // Recalculate here instead of reusing the opening vector. The popup or
+        // the desktop folder may have moved while the folder was open.
+        var travel = GetAnchorTravel();
         var ease = new CubicEase { EasingMode = EasingMode.EaseIn };
-        var fade = new DoubleAnimation(Opacity, 0, TimeSpan.FromMilliseconds(140))
+
+        var fade = new DoubleAnimation(Opacity, 0, TimeSpan.FromMilliseconds(185))
         {
             EasingFunction = ease
         };
@@ -377,16 +392,64 @@ public partial class FolderPopupWindow : Window
 
         scale.BeginAnimation(
             ScaleTransform.ScaleXProperty,
-            new DoubleAnimation(scale.ScaleX, 0.84, TimeSpan.FromMilliseconds(155))
+            new DoubleAnimation(scale.ScaleX, 0.16, TimeSpan.FromMilliseconds(245))
             {
                 EasingFunction = ease
             });
 
         scale.BeginAnimation(
             ScaleTransform.ScaleYProperty,
-            new DoubleAnimation(scale.ScaleY, 0.84, TimeSpan.FromMilliseconds(155))
+            new DoubleAnimation(scale.ScaleY, 0.16, TimeSpan.FromMilliseconds(245))
             {
                 EasingFunction = ease
             });
+
+        translate.BeginAnimation(
+            TranslateTransform.XProperty,
+            new DoubleAnimation(translate.X, travel.X, TimeSpan.FromMilliseconds(245))
+            {
+                EasingFunction = ease
+            });
+
+        translate.BeginAnimation(
+            TranslateTransform.YProperty,
+            new DoubleAnimation(translate.Y, travel.Y, TimeSpan.FromMilliseconds(245))
+            {
+                EasingFunction = ease
+            });
+    }
+
+    private Point GetAnchorTravel()
+    {
+        if (_anchorTile is null)
+            return new Point(0, 0);
+
+        // Screen-space centres make the animation independent from whether the
+        // popup had to open above/below the folder or was dragged afterwards.
+        var folderCenterX = _anchorTile.Left + (_anchorTile.ActualWidth / 2);
+        var folderCenterY = _anchorTile.Top + (_anchorTile.ActualHeight / 2);
+
+        var popupCenterX = Left + (ActualWidth > 0 ? ActualWidth : Width) / 2;
+        var popupCenterY = Top + (ActualHeight > 0 ? ActualHeight : Height) / 2;
+
+        return new Point(
+            folderCenterX - popupCenterX,
+            folderCenterY - popupCenterY);
+    }
+
+    private bool TryGetPopupTransforms(
+        out ScaleTransform scale,
+        out TranslateTransform translate)
+    {
+        scale = null!;
+        translate = null!;
+
+        if (PopupRoot.RenderTransform is not TransformGroup group)
+            return false;
+
+        scale = group.Children.OfType<ScaleTransform>().FirstOrDefault()!;
+        translate = group.Children.OfType<TranslateTransform>().FirstOrDefault()!;
+
+        return scale is not null && translate is not null;
     }
 }

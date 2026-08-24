@@ -15,7 +15,10 @@
           Margin="1"
           RenderTransformOrigin="0.5,0.5">
         <Grid.RenderTransform>
-            <ScaleTransform ScaleX="1" ScaleY="1"/>
+            <TransformGroup>
+                <ScaleTransform ScaleX="1" ScaleY="1"/>
+                <TranslateTransform X="0" Y="0"/>
+            </TransformGroup>
         </Grid.RenderTransform>
 
         <Grid.RowDefinitions>
