@@ -68,6 +68,10 @@ public sealed class DesktopFolderController
             "SmoothFolder startup",
             $"Loading {_config.Folders.Count} desktop folder(s).");
 
+        CrashLogService.LogMessage(
+            "Monitor topology",
+            MonitorService.DescribeDesktop());
+
         if (_desktopHost.RefreshHost())
         {
             _attachedHostGeneration = _desktopHost.Generation;
@@ -316,12 +320,23 @@ public sealed class DesktopFolderController
 
     private void CreateFolder(Point suggestedPosition)
     {
+        var origin = new ScreenPixelPoint(
+            (int)Math.Round(suggestedPosition.X),
+            (int)Math.Round(suggestedPosition.Y));
+
+        var target = DesktopPositionService.OffsetByDip(
+            origin,
+            130,
+            0);
+
         var folder = new FolderConfig
         {
-            Name = "New Folder",
-            X = suggestedPosition.X + 130,
-            Y = suggestedPosition.Y
+            Name = "New Folder"
         };
+
+        DesktopPositionService.PlaceAtPixels(
+            folder,
+            target);
 
         _config.Folders.Add(folder);
         Save();
@@ -338,7 +353,17 @@ public sealed class DesktopFolderController
         window.Close();
 
         if (_windows.Count == 0)
-            CreateFolder(new Point(120, 140));
+        {
+            var primary = MonitorService.GetPrimary();
+
+            var origin = new ScreenPixelPoint(
+                primary.WorkArea.Left +
+                    MonitorService.DipToPixels(120, primary.DpiX),
+                primary.WorkArea.Top +
+                    MonitorService.DipToPixels(140, primary.DpiY));
+
+            CreateFolder(new Point(origin.X, origin.Y));
+        }
     }
 
     public void Stop()

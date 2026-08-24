@@ -101,7 +101,9 @@ public sealed class DesktopHostService
         return discovered;
     }
 
-    public bool TryAttach(Window window, double screenX, double screenY)
+    public bool TryAttachPixels(
+        Window window,
+        ScreenPixelPoint topLeft)
     {
         if (!RefreshHost())
             return false;
@@ -118,10 +120,12 @@ public sealed class DesktopHostService
         if (!PrepareDesktopTile(window, hwnd))
             return false;
 
-        return MoveToScreen(window, screenX, screenY);
+        return MoveToScreenPixels(window, topLeft);
     }
 
-    public bool EnsureAttached(Window window, double screenX, double screenY)
+    public bool EnsureAttachedPixels(
+        Window window,
+        ScreenPixelPoint topLeft)
     {
         if (!RefreshHost())
             return false;
@@ -133,10 +137,12 @@ public sealed class DesktopHostService
         if (!PrepareDesktopTile(window, hwnd))
             return false;
 
-        return MoveToScreen(window, screenX, screenY);
+        return MoveToScreenPixels(window, topLeft);
     }
 
-    public bool MoveToScreen(Window window, double screenX, double screenY)
+    public bool MoveToScreenPixels(
+        Window window,
+        ScreenPixelPoint topLeft)
     {
         var hwnd = new WindowInteropHelper(window).Handle;
         if (hwnd == IntPtr.Zero || !IsWindow(hwnd))
@@ -148,18 +154,14 @@ public sealed class DesktopHostService
         if (!GetWindowRect(hwnd, out var rect))
             return false;
 
-        var dpi = GetSafeDpi(hwnd);
-        var targetX = DipToPixel(screenX, dpi);
-        var targetY = DipToPixel(screenY, dpi);
-
         var width = Math.Max(1, rect.Right - rect.Left);
         var height = Math.Max(1, rect.Bottom - rect.Top);
 
         return SetWindowPos(
             hwnd,
             GetDesktopInsertAfter(hwnd),
-            targetX,
-            targetY,
+            topLeft.X,
+            topLeft.Y,
             width,
             height,
             SwpNoActivate |
@@ -180,38 +182,52 @@ public sealed class DesktopHostService
         }
     }
 
-    public static Rect GetScreenBoundsDip(Window window)
+    public static ScreenPixelRect GetScreenBoundsPixels(Window window)
     {
         try
         {
             var hwnd = new WindowInteropHelper(window).Handle;
-            if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out var rect))
-                return new Rect(window.Left, window.Top, window.ActualWidth, window.ActualHeight);
 
-            var dpi = GetSafeDpi(hwnd);
-            return new Rect(
-                PixelToDip(rect.Left, dpi),
-                PixelToDip(rect.Top, dpi),
-                PixelToDip(rect.Right - rect.Left, dpi),
-                PixelToDip(rect.Bottom - rect.Top, dpi));
+            if (hwnd == IntPtr.Zero ||
+                !GetWindowRect(hwnd, out var rect))
+            {
+                var monitor = MonitorService.GetForWindow(window);
+                var x = MonitorService.DipToPixels(window.Left, monitor.DpiX);
+                var y = MonitorService.DipToPixels(window.Top, monitor.DpiY);
+                var width = MonitorService.DipToPixels(
+                    window.ActualWidth > 0 ? window.ActualWidth : window.Width,
+                    monitor.DpiX);
+                var height = MonitorService.DipToPixels(
+                    window.ActualHeight > 0 ? window.ActualHeight : window.Height,
+                    monitor.DpiY);
+
+                return new ScreenPixelRect(
+                    x,
+                    y,
+                    x + width,
+                    y + height);
+            }
+
+            return new ScreenPixelRect(
+                rect.Left,
+                rect.Top,
+                rect.Right,
+                rect.Bottom);
         }
         catch
         {
-            return new Rect(window.Left, window.Top, window.ActualWidth, window.ActualHeight);
+            return new ScreenPixelRect(0, 0, 0, 0);
         }
     }
 
-    public static Point GetCursorScreenPositionDip(Window window)
+    public static ScreenPixelPoint GetCursorScreenPositionPixels()
     {
-        var hwnd = new WindowInteropHelper(window).Handle;
-        var dpi = hwnd == IntPtr.Zero ? 96u : GetSafeDpi(hwnd);
-
         if (!GetCursorPos(out var point))
-            return new Point();
+            return new ScreenPixelPoint();
 
-        return new Point(
-            PixelToDip(point.X, dpi),
-            PixelToDip(point.Y, dpi));
+        return new ScreenPixelPoint(
+            point.X,
+            point.Y);
     }
 
     private bool PrepareDesktopTile(Window window, IntPtr hwnd)
@@ -772,25 +788,6 @@ public sealed class DesktopHostService
     private static string FormatHandle(IntPtr hwnd) =>
         $"0x{hwnd.ToInt64():X}";
 
-    private static uint GetSafeDpi(IntPtr hwnd)
-    {
-        try
-        {
-            var dpi = GetDpiForWindow(hwnd);
-            return dpi == 0 ? 96u : dpi;
-        }
-        catch
-        {
-            return 96u;
-        }
-    }
-
-    private static int DipToPixel(double value, uint dpi) =>
-        (int)Math.Round(value * dpi / 96.0);
-
-    private static double PixelToDip(int value, uint dpi) =>
-        value * 96.0 / dpi;
-
     private delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
     private delegate bool EnumChildProc(IntPtr hwnd, IntPtr lParam);
 
@@ -868,9 +865,6 @@ public sealed class DesktopHostService
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetCursorPos(
         out POINT lpPoint);
-
-    [DllImport("user32.dll")]
-    private static extern uint GetDpiForWindow(IntPtr hwnd);
 
     [DllImport("user32.dll")]
     private static extern int GetClassName(

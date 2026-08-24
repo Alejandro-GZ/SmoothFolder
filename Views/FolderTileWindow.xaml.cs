@@ -23,8 +23,8 @@ public partial class FolderTileWindow : Window
     private readonly Action<FolderConfig, FolderTileWindow> _deleteFolder;
     private readonly Action _exitApp;
 
-    private Point _dragStartCursor;
-    private Point _dragStartFolder;
+    private ScreenPixelPoint _dragStartCursor;
+    private ScreenPixelPoint _dragStartFolder;
     private bool _isDragging;
     private bool _desktopRecoveryMode;
     private FolderPopupWindow? _popup;
@@ -78,8 +78,21 @@ public partial class FolderTileWindow : Window
 
     public string FolderId => _folder.Id;
 
-    public bool EnsureDesktopAttachment() =>
-        _desktopHost.EnsureAttached(this, _folder.X, _folder.Y);
+    public bool EnsureDesktopAttachment()
+    {
+        var target = DesktopPositionService.Resolve(_folder);
+        var attached = _desktopHost.EnsureAttachedPixels(this, target);
+
+        if (!attached)
+            return false;
+
+        var bounds = DesktopHostService.GetScreenBoundsPixels(this);
+
+        if (DesktopPositionService.Capture(_folder, bounds))
+            _save();
+
+        return true;
+    }
 
     public void SetDesktopRecoveryMode(bool recovering)
     {
@@ -163,8 +176,12 @@ public partial class FolderTileWindow : Window
         if (e.ChangedButton != MouseButton.Left)
             return;
 
-        _dragStartCursor = DesktopHostService.GetCursorScreenPositionDip(this);
-        _dragStartFolder = new Point(_folder.X, _folder.Y);
+        _dragStartCursor =
+            DesktopHostService.GetCursorScreenPositionPixels();
+
+        _dragStartFolder =
+            DesktopHostService.GetScreenBoundsPixels(this).TopLeft;
+
         _isDragging = false;
 
         CaptureMouse();
@@ -180,27 +197,30 @@ public partial class FolderTileWindow : Window
             return;
         }
 
-        var cursor = DesktopHostService.GetCursorScreenPositionDip(this);
+        var cursor =
+            DesktopHostService.GetCursorScreenPositionPixels();
+
         var deltaX = cursor.X - _dragStartCursor.X;
         var deltaY = cursor.Y - _dragStartCursor.Y;
 
+        var dragMonitor = MonitorService.GetForPoint(cursor);
+        var thresholdX = MonitorService.DipToPixels(5, dragMonitor.DpiX);
+        var thresholdY = MonitorService.DipToPixels(5, dragMonitor.DpiY);
+
         if (!_isDragging &&
-            Math.Abs(deltaX) < 5 &&
-            Math.Abs(deltaY) < 5)
+            Math.Abs(deltaX) < thresholdX &&
+            Math.Abs(deltaY) < thresholdY)
         {
             return;
         }
 
         _isDragging = true;
 
-        var targetX = _dragStartFolder.X + deltaX;
-        var targetY = _dragStartFolder.Y + deltaY;
+        var target = new ScreenPixelPoint(
+            _dragStartFolder.X + deltaX,
+            _dragStartFolder.Y + deltaY);
 
-        if (_desktopHost.MoveToScreen(this, targetX, targetY))
-        {
-            _folder.X = targetX;
-            _folder.Y = targetY;
-        }
+        _ = _desktopHost.MoveToScreenPixels(this, target);
     }
 
     private void OnMouseUp(object sender, MouseButtonEventArgs e)
@@ -217,11 +237,15 @@ public partial class FolderTileWindow : Window
         }
         else
         {
-            // Read the actual HWND location back in screen-space so persisted
-            // coordinates remain correct after SetParent/WorkerW conversion.
-            var bounds = DesktopHostService.GetScreenBoundsDip(this);
-            _folder.X = bounds.Left;
-            _folder.Y = bounds.Top;
+            // Persist the destination monitor and physical offset only after
+            // the drag completes. This avoids mixed-DPI delta discontinuities
+            // while the HWND crosses monitor boundaries.
+            var bounds =
+                DesktopHostService.GetScreenBoundsPixels(this);
+
+            _ = DesktopPositionService.Capture(
+                _folder,
+                bounds);
         }
 
         _save();
@@ -234,7 +258,7 @@ public partial class FolderTileWindow : Window
             if (_popup is { IsVisible: true })
             {
                 _popup.RequestClose();
-                _desktopHost.EnsureAttached(this, _folder.X, _folder.Y);
+                _ = EnsureDesktopAttachment();
                 return;
             }
 
@@ -258,7 +282,7 @@ public partial class FolderTileWindow : Window
             // Activating the large popup must never leave the compact desktop
             // tile in an application-level Z-order band. Reassert its desktop
             // position immediately; previously a drag happened to do this.
-            _desktopHost.EnsureAttached(this, _folder.X, _folder.Y);
+            _ = EnsureDesktopAttachment();
         }
         catch (Exception ex)
         {
@@ -370,7 +394,11 @@ public partial class FolderTileWindow : Window
         };
 
         var add = new MenuItem { Header = "New folder" };
-        add.Click += (_, _) => _newFolder(new Point(_folder.X, _folder.Y));
+        add.Click += (_, _) =>
+        {
+            var bounds = DesktopHostService.GetScreenBoundsPixels(this);
+            _newFolder(new Point(bounds.Left, bounds.Top));
+        };
 
         var delete = new MenuItem { Header = "Delete folder" };
         delete.Click += (_, _) =>

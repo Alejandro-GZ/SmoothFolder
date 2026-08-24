@@ -44,11 +44,7 @@ public partial class FolderPopupWindow : Window
         TitleText.Text = folder.Name;
         ApplyGlassAppearance();
 
-        Loaded += (_, _) =>
-        {
-            RefreshItems();
-            AnimateOpen();
-        };
+        Loaded += (_, _) => RefreshItems();
 
         Closing += OnClosing;
         SourceInitialized += (_, _) => WindowEffects.ApplyPopupEffects(this, 30);
@@ -72,27 +68,118 @@ public partial class FolderPopupWindow : Window
     {
         // Do not make the desktop tile the native/WPF owner of the popup.
         // Activating an owned popup can promote its owner in the top-level
-        // Z-order group, which made the compact tile float above normal apps
-        // until the next drag/SetWindowPos corrected it.
+        // Z-order group.
         _anchorTile = tile;
 
-        var tileBounds = DesktopHostService.GetScreenBoundsDip(tile);
-        var work = SystemParameters.WorkArea;
-        var left = tileBounds.Left + (tileBounds.Width / 2) - (Width / 2);
-        var top = tileBounds.Bottom + 8;
-
-        left = Math.Max(work.Left + 12, Math.Min(left, work.Right - Width - 12));
-
-        if (top + Height > work.Bottom - 12)
-            top = tileBounds.Top - Height - 8;
-
-        top = Math.Max(work.Top + 12, top);
-
-        Left = left;
-        Top = top;
-
+        // Keep the first frame hidden while the HWND is created. WPF creates
+        // top-level windows in DIP coordinates; the final placement is applied
+        // in physical pixels after Show(), which is stable across monitors with
+        // different DPI scales.
+        Opacity = 0;
         Show();
-        Activate();
+
+        PositionNearAnchorPixels();
+
+        _ = Dispatcher.BeginInvoke(
+            System.Windows.Threading.DispatcherPriority.ContextIdle,
+            new Action(() =>
+            {
+                // WM_DPICHANGED may have resized the WPF HWND after the first
+                // cross-monitor SetWindowPos. Recalculate once using the actual
+                // target-monitor size before revealing the popup.
+                PositionNearAnchorPixels();
+
+                Opacity = 1;
+                AnimateOpen();
+                Activate();
+            }));
+    }
+
+    private void PositionNearAnchorPixels()
+    {
+        if (_anchorTile is null)
+            return;
+
+        var tileBounds =
+            DesktopHostService.GetScreenBoundsPixels(_anchorTile);
+
+        var monitor = MonitorService.GetForRect(tileBounds);
+
+        var currentBounds =
+            DesktopHostService.GetScreenBoundsPixels(this);
+
+        var width = currentBounds.Width > 0
+            ? currentBounds.Width
+            : MonitorService.DipToPixels(Width, monitor.DpiX);
+
+        var height = currentBounds.Height > 0
+            ? currentBounds.Height
+            : MonitorService.DipToPixels(Height, monitor.DpiY);
+
+        // If the popup HWND was initially created on a differently-scaled
+        // monitor, use the destination monitor's expected WPF size for the
+        // first placement. The second dispatcher pass uses the actual HWND.
+        var currentMonitor = MonitorService.GetForRect(currentBounds);
+
+        if (!string.Equals(
+                currentMonitor.DeviceName,
+                monitor.DeviceName,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            width = MonitorService.DipToPixels(
+                Width,
+                monitor.DpiX);
+
+            height = MonitorService.DipToPixels(
+                Height,
+                monitor.DpiY);
+        }
+
+        var marginX = MonitorService.DipToPixels(
+            12,
+            monitor.DpiX);
+
+        var marginY = MonitorService.DipToPixels(
+            12,
+            monitor.DpiY);
+
+        var gap = MonitorService.DipToPixels(
+            8,
+            monitor.DpiY);
+
+        var left =
+            tileBounds.Left +
+            (tileBounds.Width / 2) -
+            (width / 2);
+
+        var top = tileBounds.Bottom + gap;
+
+        var minLeft = monitor.WorkArea.Left + marginX;
+        var maxLeft = Math.Max(
+            minLeft,
+            monitor.WorkArea.Right - width - marginX);
+
+        left = Math.Clamp(
+            left,
+            minLeft,
+            maxLeft);
+
+        if (top + height > monitor.WorkArea.Bottom - marginY)
+            top = tileBounds.Top - height - gap;
+
+        var minTop = monitor.WorkArea.Top + marginY;
+        var maxTop = Math.Max(
+            minTop,
+            monitor.WorkArea.Bottom - height - marginY);
+
+        top = Math.Clamp(
+            top,
+            minTop,
+            maxTop);
+
+        _ = MonitorService.PositionWindowPixels(
+            this,
+            new ScreenPixelPoint(left, top));
     }
 
     public void RequestClose()
@@ -428,19 +515,28 @@ public partial class FolderPopupWindow : Window
         if (_anchorTile is null)
             return new Point(0, 0);
 
-        // The compact tile can be parented to WorkerW/Progman, where WPF Left/Top
-        // are no longer guaranteed to be screen coordinates. Read the HWND's
-        // actual screen rectangle for both opening and closing animations.
-        var tileBounds = DesktopHostService.GetScreenBoundsDip(_anchorTile);
-        var folderCenterX = tileBounds.Left + (tileBounds.Width / 2);
-        var folderCenterY = tileBounds.Top + (tileBounds.Height / 2);
+        var tileBounds =
+            DesktopHostService.GetScreenBoundsPixels(_anchorTile);
 
-        var popupCenterX = Left + (ActualWidth > 0 ? ActualWidth : Width) / 2;
-        var popupCenterY = Top + (ActualHeight > 0 ? ActualHeight : Height) / 2;
+        var popupBounds =
+            DesktopHostService.GetScreenBoundsPixels(this);
 
+        var folderCenter = tileBounds.Center;
+        var popupCenter = popupBounds.Center;
+
+        var (dpiX, dpiY) =
+            MonitorService.GetWindowDpi(this);
+
+        // RenderTransform uses WPF DIPs, while the shell geometry is physical
+        // pixels. Convert only the local travel vector using the popup's DPI;
+        // never convert an absolute virtual-desktop coordinate this way.
         return new Point(
-            folderCenterX - popupCenterX,
-            folderCenterY - popupCenterY);
+            MonitorService.PixelsToDip(
+                folderCenter.X - popupCenter.X,
+                dpiX),
+            MonitorService.PixelsToDip(
+                folderCenter.Y - popupCenter.Y,
+                dpiY));
     }
 
     private bool TryGetPopupTransforms(

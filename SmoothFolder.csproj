@@ -6,6 +6,8 @@
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <ApplicationIcon>Assets\SmoothFolder.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <AssemblyName>SmoothFolder</AssemblyName>

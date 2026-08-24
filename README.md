@@ -163,6 +163,19 @@ SmoothFolder no longer sends Explorer's undocumented `0x052C` WorkerW message
 during normal discovery. It is used only as a compatibility wake-up if
 `SHELLDLL_DefView` cannot be found, reducing unnecessary shell mutations.
 
+### Multi-monitor and DPI behavior
+
+SmoothFolder declares Per-Monitor V2 DPI awareness and keeps desktop-shell
+geometry in physical pixels. Compact folder positions are persisted relative to
+their monitor device (`\\.\DISPLAYx`) rather than as one global WPF-DIP
+coordinate. This allows negative virtual-desktop coordinates and mixed 100% /
+125% / 150% scale layouts without introducing drag jumps at monitor boundaries.
+
+Folder popups use the work area and effective DPI of the monitor containing the
+compact tile, so the popup opens on the correct display and automatically flips
+above the tile when there is not enough space below it. Legacy `X` / `Y`
+configuration values are migrated automatically when a folder is next placed.
+
 ## Data and privacy
 
 SmoothFolder works locally.
@@ -216,7 +229,9 @@ The workflow:
   Windows builds may require additional host-discovery compatibility rules.
 - Items cannot yet be reordered by dragging them within an open folder.
 - Large folders currently scroll rather than using iOS-style pages.
-- Multi-monitor popup constraints currently rely on the primary work area.
+- Monitor-relative tile positions are persisted by display device name. If a
+  previously used display is disconnected, the tile falls back to an available
+  work area and is remapped on the next successful placement.
 - There is no built-in startup-with-Windows setting yet.
 - There is no automatic Steam/Epic library importer yet.
 
@@ -225,7 +240,7 @@ The workflow:
 Near-term priorities:
 
 1. Extend Explorer compatibility profiles as new Windows layouts are observed.
-2. Multi-monitor-aware positioning.
+2. Harden monitor hot-plug / topology-change recovery.
 3. Drag-and-drop item reordering.
 4. iOS-style folder pages and page indicators.
 5. Improved glass blur while preserving transparent rounded corners.
