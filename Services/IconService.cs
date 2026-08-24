@@ -9,32 +9,41 @@ namespace SmoothFolder.Services;
 
 public sealed class IconService
 {
-    private const int PreferredIconSize = 128;
+    private const int DefaultIconSize = 128;
+    private readonly Dictionary<string, ImageSource?> _cache =
+        new(StringComparer.OrdinalIgnoreCase);
 
-    public ImageSource? GetIcon(string path)
+    public ImageSource? GetIcon(string path, int preferredSize = DefaultIconSize)
     {
+        preferredSize = Math.Clamp(preferredSize, 16, 256);
+        var cacheKey = $"{preferredSize}|{path}";
+
+        if (_cache.TryGetValue(cacheKey, out var cached))
+            return cached;
+
+        ImageSource? result = null;
+
         try
         {
             // Steam/Epic .url files often provide an explicit IconFile. Prefer
-            // that source because asking Windows for the .url itself can return
-            // the generic Internet Shortcut icon.
+            // it because asking Windows for the .url itself can return the
+            // generic Internet Shortcut icon.
             if (Path.GetExtension(path).Equals(".url", StringComparison.OrdinalIgnoreCase))
             {
                 var iconFile = ReadInternetShortcutIcon(path);
                 if (!string.IsNullOrWhiteSpace(iconFile) && File.Exists(iconFile))
-                {
-                    var explicitIcon = ExtractHighResolutionIcon(iconFile);
-                    if (explicitIcon is not null)
-                        return explicitIcon;
-                }
+                    result = ExtractHighResolutionIcon(iconFile, preferredSize);
             }
 
-            return ExtractHighResolutionIcon(path);
+            result ??= ExtractHighResolutionIcon(path, preferredSize);
         }
         catch
         {
-            return null;
+            result = null;
         }
+
+        _cache[cacheKey] = result;
+        return result;
     }
 
     private static string? ReadInternetShortcutIcon(string path)
@@ -52,29 +61,28 @@ public sealed class IconService
         return null;
     }
 
-    private static ImageSource? ExtractHighResolutionIcon(string path)
+    private static ImageSource? ExtractHighResolutionIcon(string path, int preferredSize)
     {
-        // ICO files may contain several embedded sizes. Decode the largest
-        // frame directly instead of asking the legacy Shell API for a 32px icon.
+        // ICO files usually contain multiple hand-tuned sizes. For the tiny
+        // 3x3 folder preview, selecting the frame closest to 32 px is sharper
+        // than decoding the 256 px frame and shrinking it aggressively.
         if (Path.GetExtension(path).Equals(".ico", StringComparison.OrdinalIgnoreCase))
         {
-            var ico = TryLoadLargestIcoFrame(path);
+            var ico = TryLoadBestIcoFrame(path, preferredSize);
             if (ico is not null)
                 return ico;
         }
 
-        // Windows Vista+ Shell image factory can provide a much larger icon
-        // than SHGetFileInfo(SHGFI_LARGEICON), avoiding the blurry upscale that
-        // was visible in the folder grid.
-        var shellImage = TryGetShellImage(path, PreferredIconSize);
+        // IShellItemImageFactory is size-aware and can return a representation
+        // appropriate for either the 32 px folder preview or the large popup.
+        var shellImage = TryGetShellImage(path, preferredSize);
         if (shellImage is not null)
             return shellImage;
 
-        // Safe fallback for unusual shell items.
         return ExtractLegacyShellIcon(path);
     }
 
-    private static ImageSource? TryLoadLargestIcoFrame(string path)
+    private static ImageSource? TryLoadBestIcoFrame(string path, int preferredSize)
     {
         try
         {
@@ -85,7 +93,9 @@ public sealed class IconService
                 BitmapCacheOption.OnLoad);
 
             var frame = decoder.Frames
-                .OrderByDescending(x => x.PixelWidth * x.PixelHeight)
+                .OrderBy(x => Math.Abs(x.PixelWidth - preferredSize))
+                .ThenBy(x => Math.Abs(x.PixelHeight - preferredSize))
+                .ThenByDescending(x => x.PixelWidth * x.PixelHeight)
                 .FirstOrDefault();
 
             if (frame is null)

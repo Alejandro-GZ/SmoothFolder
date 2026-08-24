@@ -74,14 +74,20 @@ public partial class FolderTileWindow : Window
 
         foreach (var item in _folder.Items.Take(9))
         {
+            // Small icons are requested separately from the Shell. Windows/ICO
+            // files often contain a dedicated 24/32 px representation which is
+            // noticeably sharper than shrinking a generic large shortcut icon.
             var image = new Image
             {
-                Source = _icons.GetIcon(item.Path),
-                Width = 19,
-                Height = 19,
-                Margin = new Thickness(2),
-                Stretch = Stretch.Uniform
+                Source = _icons.GetIcon(item.Path, 32),
+                Width = 20,
+                Height = 20,
+                Margin = new Thickness(1.5),
+                Stretch = Stretch.Uniform,
+                SnapsToDevicePixels = true,
+                UseLayoutRounding = true
             };
+            RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.HighQuality);
             PreviewGrid.Children.Add(image);
         }
 
@@ -146,7 +152,7 @@ public partial class FolderTileWindow : Window
         {
             if (_popup is { IsVisible: true })
             {
-                _popup.Close();
+                _popup.RequestClose();
                 return;
             }
 

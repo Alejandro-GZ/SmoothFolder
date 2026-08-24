@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -18,6 +19,9 @@ public partial class FolderPopupWindow : Window
     private readonly ShortcutImportService _importer;
     private readonly Action _save;
     private readonly Action _refreshTile;
+
+    private bool _isClosing;
+    private bool _allowClose;
 
     public FolderPopupWindow(
         FolderConfig folder,
@@ -45,11 +49,13 @@ public partial class FolderPopupWindow : Window
             AnimateOpen();
         };
 
+        Closing += OnClosing;
         SourceInitialized += (_, _) => WindowEffects.ApplyPopupEffects(this, 30);
+
         PreviewKeyDown += (_, e) =>
         {
             if (e.Key == Key.Escape)
-                Close();
+                RequestClose();
         };
 
         DragOver += (_, e) =>
@@ -66,22 +72,56 @@ public partial class FolderPopupWindow : Window
         Owner = tile;
 
         var work = SystemParameters.WorkArea;
-
         var left = tile.Left + (tile.Width / 2) - (Width / 2);
         var top = tile.Top + tile.Height + 8;
+        var opensBelow = true;
 
         left = Math.Max(work.Left + 12, Math.Min(left, work.Right - Width - 12));
 
         if (top + Height > work.Bottom - 12)
+        {
             top = tile.Top - Height - 8;
+            opensBelow = false;
+        }
 
         top = Math.Max(work.Top + 12, top);
 
         Left = left;
         Top = top;
 
+        // Scale from the folder's horizontal position, which makes the popup
+        // feel attached to the desktop folder rather than appearing centrally.
+        var originX = Math.Clamp(
+            (tile.Left + (tile.Width / 2) - Left) / Width,
+            0.08,
+            0.92);
+
+        PopupRoot.RenderTransformOrigin = new Point(originX, opensBelow ? 0.03 : 0.97);
+
         Show();
         Activate();
+    }
+
+    public void RequestClose()
+    {
+        if (_isClosing || _allowClose)
+            return;
+
+        _isClosing = true;
+        AnimateClose(() =>
+        {
+            _allowClose = true;
+            Close();
+        });
+    }
+
+    private void OnClosing(object? sender, CancelEventArgs e)
+    {
+        if (_allowClose)
+            return;
+
+        e.Cancel = true;
+        RequestClose();
     }
 
     private void RefreshItems()
@@ -108,7 +148,7 @@ public partial class FolderPopupWindow : Window
     {
         var icon = new Image
         {
-            Source = _icons.GetIcon(item.Path),
+            Source = _icons.GetIcon(item.Path, 128),
             Width = 62,
             Height = 62,
             Stretch = Stretch.Uniform,
@@ -158,7 +198,7 @@ public partial class FolderPopupWindow : Window
             try
             {
                 _launcher.Launch(item.Path);
-                Close();
+                RequestClose();
             }
             catch (Exception ex)
             {
@@ -170,16 +210,14 @@ public partial class FolderPopupWindow : Window
             }
         };
 
-        border.MouseRightButtonUp += (_, e) =>
-        {
-            e.Handled = true;
-            OpenItemContextMenu(item, border);
-        };
+        // Standard WPF ContextMenu is attached to the whole item card, so
+        // right-click works consistently on the icon, label, or empty padding.
+        border.ContextMenu = BuildItemContextMenu(item);
 
         return border;
     }
 
-    private void OpenItemContextMenu(AppItem item, FrameworkElement target)
+    private ContextMenu BuildItemContextMenu(AppItem item)
     {
         var menu = new ContextMenu();
 
@@ -196,40 +234,43 @@ public partial class FolderPopupWindow : Window
             }
         };
 
-        var remove = new MenuItem { Header = "Remove from folder" };
-        remove.Click += (_, _) =>
-        {
-            _folder.Items.Remove(item);
-
-            // If the shortcut was copied to AppData, delete that private copy.
-            // The user's original file is never touched.
-            try
-            {
-                var appDataRoot = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "SmoothFolder");
-
-                if (File.Exists(item.Path) &&
-                    item.Path.StartsWith(appDataRoot, StringComparison.OrdinalIgnoreCase))
-                {
-                    File.Delete(item.Path);
-                }
-            }
-            catch
-            {
-                // The configuration can still be cleaned even if a private copy
-                // could not be deleted.
-            }
-
-            _save();
-            RefreshItems();
-            _refreshTile();
-        };
+        var remove = new MenuItem { Header = "Remove app from folder" };
+        remove.Click += (_, _) => RemoveItem(item);
 
         menu.Items.Add(rename);
+        menu.Items.Add(new Separator());
         menu.Items.Add(remove);
-        target.ContextMenu = menu;
-        menu.IsOpen = true;
+
+        return menu;
+    }
+
+    private void RemoveItem(AppItem item)
+    {
+        _folder.Items.Remove(item);
+
+        // If SmoothFolder copied a .lnk/.url into its private AppData storage,
+        // remove only that private copy. The original shortcut/game is untouched.
+        try
+        {
+            var appDataRoot = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "SmoothFolder");
+
+            if (File.Exists(item.Path) &&
+                item.Path.StartsWith(appDataRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                File.Delete(item.Path);
+            }
+        }
+        catch
+        {
+            // The UI/config can still be updated if a private cached shortcut
+            // cannot be removed immediately.
+        }
+
+        _save();
+        RefreshItems();
+        _refreshTile();
     }
 
     private void OnDrop(object sender, DragEventArgs e)
@@ -287,31 +328,63 @@ public partial class FolderPopupWindow : Window
     {
         Opacity = 0;
 
-        if (PopupCard.RenderTransform is not ScaleTransform scale)
+        if (PopupRoot.RenderTransform is not ScaleTransform scale)
             return;
 
-        scale.ScaleX = 0.94;
-        scale.ScaleY = 0.94;
+        scale.ScaleX = 0.80;
+        scale.ScaleY = 0.80;
 
         var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
 
         BeginAnimation(
             OpacityProperty,
-            new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(150))
+            new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(180))
             {
                 EasingFunction = ease
             });
 
         scale.BeginAnimation(
             ScaleTransform.ScaleXProperty,
-            new DoubleAnimation(0.94, 1, TimeSpan.FromMilliseconds(170))
+            new DoubleAnimation(0.80, 1, TimeSpan.FromMilliseconds(220))
             {
                 EasingFunction = ease
             });
 
         scale.BeginAnimation(
             ScaleTransform.ScaleYProperty,
-            new DoubleAnimation(0.94, 1, TimeSpan.FromMilliseconds(170))
+            new DoubleAnimation(0.80, 1, TimeSpan.FromMilliseconds(220))
+            {
+                EasingFunction = ease
+            });
+    }
+
+    private void AnimateClose(Action completed)
+    {
+        if (PopupRoot.RenderTransform is not ScaleTransform scale)
+        {
+            completed();
+            return;
+        }
+
+        var ease = new CubicEase { EasingMode = EasingMode.EaseIn };
+        var fade = new DoubleAnimation(Opacity, 0, TimeSpan.FromMilliseconds(140))
+        {
+            EasingFunction = ease
+        };
+        fade.Completed += (_, _) => completed();
+
+        BeginAnimation(OpacityProperty, fade);
+
+        scale.BeginAnimation(
+            ScaleTransform.ScaleXProperty,
+            new DoubleAnimation(scale.ScaleX, 0.84, TimeSpan.FromMilliseconds(155))
+            {
+                EasingFunction = ease
+            });
+
+        scale.BeginAnimation(
+            ScaleTransform.ScaleYProperty,
+            new DoubleAnimation(scale.ScaleY, 0.84, TimeSpan.FromMilliseconds(155))
             {
                 EasingFunction = ease
             });
