@@ -29,8 +29,8 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      - name: Restore
-        run: dotnet restore SmoothFolder.csproj
+      - name: Restore ${{ matrix.runtime }} publish target
+        run: dotnet restore SmoothFolder.csproj -r ${{ matrix.runtime }}
 
       - name: Publish self-contained single-file app
         shell: pwsh
