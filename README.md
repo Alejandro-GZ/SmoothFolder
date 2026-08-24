@@ -142,10 +142,12 @@ treated as a best-effort compatibility layer rather than a public Windows API.
 Explorer recovery is event-driven: SmoothFolder listens for the shell's
 `TaskbarCreated` broadcast, invalidates the old desktop hierarchy, waits for the
 replacement shell to become ready with bounded backoff, and then reanchors the
-existing tiles. A slower periodic health check remains as a safety net for shell
-changes that do not emit the expected broadcast. Tiles are temporarily hidden
-during the short recovery window so they cannot float above normal applications
-while Explorer is rebuilding its desktop.
+existing tiles. Recovery is considered complete only after every live tile
+confirms a successful desktop reattachment; partial reattachment continues
+through the bounded retry sequence. A slower periodic health check remains as a
+safety net for shell changes that do not emit the expected broadcast. Tiles are
+temporarily hidden during the short recovery window so they cannot float above
+normal applications while Explorer is rebuilding its desktop.
 
 Desktop discovery is also layout-aware. SmoothFolder classifies the current
 Explorer hierarchy instead of assuming one fixed WorkerW arrangement:

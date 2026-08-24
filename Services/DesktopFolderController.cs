@@ -171,16 +171,28 @@ public sealed class DesktopFolderController
 
         if (_desktopHost.RefreshHost())
         {
-            ReconcileTileWindows(forceReanchor: true);
-            _attachedHostGeneration = _desktopHost.Generation;
-            SetTilesRecoveryMode(recovering: false);
+            var reconciliation = ReconcileTileWindows(forceReanchor: true);
+
+            if (reconciliation.AllAttached)
+            {
+                _attachedHostGeneration = _desktopHost.Generation;
+                SetTilesRecoveryMode(recovering: false);
+
+                CrashLogService.LogMessage(
+                    "Desktop recovery completed",
+                    $"{_recoveryReason}; attempts={_recoveryAttempt}; " +
+                    $"host generation={_attachedHostGeneration}; layout={_desktopHost.Layout}; " +
+                    $"tiles={reconciliation.Attached}/{reconciliation.Total}.");
+
+                return;
+            }
 
             CrashLogService.LogMessage(
-                "Desktop recovery completed",
-                $"{_recoveryReason}; attempts={_recoveryAttempt}; " +
-                $"host generation={_attachedHostGeneration}; layout={_desktopHost.Layout}.");
-
-            return;
+                "Desktop recovery reattach pending",
+                $"{_recoveryReason}; attempt={_recoveryAttempt}; " +
+                $"layout={_desktopHost.Layout}; " +
+                $"tiles={reconciliation.Attached}/{reconciliation.Total}. " +
+                "Recovery will retry.");
         }
 
         ScheduleNextRecoveryAttempt();
@@ -214,27 +226,42 @@ public sealed class DesktopFolderController
         var generationChanged =
             _desktopHost.Generation != _attachedHostGeneration;
 
-        ReconcileTileWindows(forceReanchor: generationChanged);
+        var reconciliation =
+            ReconcileTileWindows(forceReanchor: generationChanged);
 
         if (generationChanged)
         {
+            if (!reconciliation.AllAttached)
+            {
+                BeginDesktopRecovery(
+                    $"Host generation changed but only " +
+                    $"{reconciliation.Attached}/{reconciliation.Total} tile(s) reattached");
+                return;
+            }
+
             CrashLogService.LogMessage(
                 "Desktop host generation changed",
                 $"Reanchored tiles to generation {_desktopHost.Generation} " +
-                $"(previous={_attachedHostGeneration}); layout={_desktopHost.Layout}.");
+                $"(previous={_attachedHostGeneration}); layout={_desktopHost.Layout}; " +
+                $"tiles={reconciliation.Attached}/{reconciliation.Total}.");
 
             _attachedHostGeneration = _desktopHost.Generation;
         }
     }
 
-    private void ReconcileTileWindows(bool forceReanchor)
+    private TileReconciliationResult ReconcileTileWindows(bool forceReanchor)
     {
+        var total = 0;
+        var attached = 0;
+
         foreach (var window in _windows.ToArray())
         {
             if (DesktopHostService.IsWindowAlive(window))
             {
-                if (forceReanchor)
-                    _ = window.EnsureDesktopAttachment();
+                total++;
+
+                if (!forceReanchor || window.EnsureDesktopAttachment())
+                    attached++;
 
                 continue;
             }
@@ -248,8 +275,24 @@ public sealed class DesktopFolderController
             _windows.Remove(window);
 
             if (folder is not null)
+            {
                 ShowFolder(folder);
+
+                // The new HWND is finalized asynchronously by WPF. Count this
+                // recovery pass as incomplete so the next bounded retry verifies
+                // the replacement after ContentRendered.
+                total++;
+            }
         }
+
+        return new TileReconciliationResult(total, attached);
+    }
+
+    private readonly record struct TileReconciliationResult(
+        int Total,
+        int Attached)
+    {
+        public bool AllAttached => Attached == Total;
     }
 
     private void SetTilesRecoveryMode(bool recovering)

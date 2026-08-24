@@ -233,20 +233,13 @@ public sealed class DesktopHostService
                 return false;
             }
 
-            // A tile must remain an independent top-level window. A WorkerW or
-            // Progman owner would force it to stay above that owner and can
-            // produce unexpected application-level Z-order behavior.
-            Marshal.SetLastPInvokeError(0);
-            _ = SetWindowLongPtr(hwnd, GwlHwndParent, IntPtr.Zero);
-            var ownerError = Marshal.GetLastPInvokeError();
-
-            if (ownerError != 0)
-            {
-                LogAttachFailure(
-                    hwnd,
-                    $"Could not clear the Explorer desktop owner. Win32 error: {ownerError}.");
+            // A tile must remain an independent top-level window. Only touch
+            // GWLP_HWNDPARENT when there is actually an owner. Rewriting a
+            // zero owner on every maintenance/recovery pass is unnecessary and
+            // can race with WPF/Explorer teardown, producing ERROR_INVALID_WINDOW_HANDLE
+            // even though the tile HWND is otherwise still usable.
+            if (!EnsureNoNativeOwner(hwnd))
                 return false;
-            }
 
             WindowEffects.ConfigureDesktopTile(window);
 
@@ -282,6 +275,36 @@ public sealed class DesktopHostService
             CrashLogService.Log(ex, "Attaching desktop tile");
             return false;
         }
+    }
+
+    private bool EnsureNoNativeOwner(IntPtr hwnd)
+    {
+        var owner = GetWindow(hwnd, GetWindowCommand.Owner);
+        if (owner == IntPtr.Zero)
+            return true;
+
+        Marshal.SetLastPInvokeError(0);
+        _ = SetWindowLongPtr(hwnd, GwlHwndParent, IntPtr.Zero);
+        var error = Marshal.GetLastPInvokeError();
+
+        // The owner may disappear while Explorer is rebuilding. If the owner
+        // is already gone after the write attempt, the desired state has been
+        // reached and the operation is effectively successful.
+        if (GetWindow(hwnd, GetWindowCommand.Owner) == IntPtr.Zero)
+            return true;
+
+        if (error != 0)
+        {
+            LogAttachFailure(
+                hwnd,
+                $"Could not clear native owner {FormatHandle(owner)}. Win32 error: {error}.");
+            return false;
+        }
+
+        LogAttachFailure(
+            hwnd,
+            $"Native owner {FormatHandle(owner)} remained set after GWLP_HWNDPARENT was cleared.");
+        return false;
     }
 
     private IntPtr GetDesktopInsertAfter(IntPtr tileHwnd)
