@@ -8,6 +8,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>SmoothFolder</AssemblyName>
     <RootNamespace>SmoothFolder</RootNamespace>
+    <Product>SmoothFolder</Product>
+    <Description>iOS-inspired application folders for the Windows desktop.</Description>
+    <Authors>SmoothFolder contributors</Authors>
+    <Copyright>Copyright © SmoothFolder contributors</Copyright>
   </PropertyGroup>
 
 </Project>

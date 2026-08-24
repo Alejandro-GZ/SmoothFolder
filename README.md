@@ -1,48 +1,77 @@
 # SmoothFolder
 
-SmoothFolder is a small WPF application for Windows 11 that creates application/game
-folders directly on the desktop with an interaction model inspired by iOS.
+**SmoothFolder brings iOS-inspired application folders to the Windows 11 desktop.**
 
-## Included in the MVP
+It is a lightweight desktop companion for grouping games and applications into
+compact glass folders without replacing the Windows shell, taskbar, or launcher.
+SmoothFolder is designed to stay out of the way: it runs as a background GUI
+process, creates no console window, and its folder UI is excluded from the
+Windows taskbar and Alt+Tab/task-switcher surfaces.
 
-- A `Games` folder is created on first launch.
-- Compact folder window with a 3x3 icon preview.
-- Click the folder to open a glass-style panel.
-- Drag and drop onto either the closed folder or the open panel.
-- Practical support for:
-  - `.lnk`
-  - Steam / Epic `.url` shortcuts
-  - `.exe`
-  - folders and other items that Windows can open through ShellExecute.
-- Dropped `.lnk` and `.url` shortcuts are copied to `%LOCALAPPDATA%\SmoothFolder`
-  so the original desktop shortcut can be removed or hidden without breaking the folder.
-- Icon resolution through the Windows Shell.
-- For `.url` shortcuts, SmoothFolder first tries `IconFile=...`, which is commonly
-  used by Steam and Epic shortcuts.
-- Persistent configuration stored in `%LOCALAPPDATA%\SmoothFolder\config.json`.
-- Move folders by dragging them around the desktop.
-- Create, rename, and delete folders from the context menu.
-- Rename or remove items from the context menu.
-- Windows 11 system backdrop and opening animation for the folder popup.
-- SmoothFolder does not appear on the taskbar and should not clutter Alt+Tab.
+> SmoothFolder is currently under active development. The core folder experience
+> is usable, while deeper desktop-shell integration and additional polish are
+> still planned.
 
-## Requirements
+## Features
+
+- Compact desktop folders with a **3x3 live icon preview**.
+- iOS-inspired **glass folder panel** with per-folder tint and tint strength.
+- Opening and closing animations that expand from and collapse back into the
+  folder's current desktop position.
+- Drag-and-drop support for:
+  - Windows shortcuts (`.lnk`)
+  - Steam / Epic shortcuts (`.url`)
+  - executables (`.exe`)
+  - folders and other Shell-openable items.
+- High-resolution icon extraction through the Windows Shell.
+- Size-aware icon selection for sharper small folder previews.
+- Right-click actions for renaming and removing application entries.
+- Create, rename, move, tint, and delete desktop folders.
+- Persistent configuration under `%LOCALAPPDATA%\SmoothFolder`.
+- Background-app behavior:
+  - `WinExe` output, so no console window is created.
+  - no normal Windows taskbar entry.
+  - auxiliary windows are marked as tool windows and excluded from Alt+Tab.
+  - single-instance process protection.
+- No game or application installation is modified by SmoothFolder.
+
+## Installation
+
+### GitHub Releases
+
+Tagged releases are built automatically by GitHub Actions.
+
+Download the archive for your machine:
+
+- `SmoothFolder-<version>-win-x64.zip` for standard 64-bit Intel/AMD Windows PCs.
+- `SmoothFolder-<version>-win-arm64.zip` for Windows on ARM.
+
+Release builds are **self-contained**, so users do not need to install the
+.NET SDK or runtime separately.
+
+Extract the archive and run:
+
+```text
+SmoothFolder.exe
+```
+
+### Build from source
+
+Requirements:
 
 - Windows 11
 - .NET 10 SDK
-- PowerShell
-
-## Build
-
-Open PowerShell in the project directory:
+- PowerShell or another terminal
 
 ```powershell
+git clone <repository-url>
+cd SmoothFolder
 dotnet restore
 dotnet build -c Release
 dotnet run
 ```
 
-The Release executable is generated under:
+The regular Release output is created under:
 
 ```text
 bin\Release\net10.0-windows\
@@ -50,46 +79,131 @@ bin\Release\net10.0-windows\
 
 ## Usage
 
-1. Run the application.
-2. A `Games` folder will appear.
-3. Drag a Steam/Epic shortcut directly onto it.
-4. Click the folder to open it.
-5. Click a game to launch it.
-6. Drag the folder to reposition it.
-7. Right-click the folder to rename it, create another folder, or delete it.
+On first launch, SmoothFolder creates a `Games` folder.
 
+1. Drag Steam, Epic, Windows, or executable shortcuts onto the folder.
+2. Click the folder to open it.
+3. Click an item to launch it.
+4. Right-click an item to rename its displayed name or remove it from the folder.
+5. Drag the folder itself to reposition it.
+6. Right-click the closed folder for folder-level actions such as rename,
+   glass tint, creating another folder, or exiting SmoothFolder.
+
+Removing an item from SmoothFolder **does not uninstall or delete the game**.
+
+For `.lnk` and `.url` files, SmoothFolder stores a private copy under its AppData
+directory. This means the original shortcut can be removed from the desktop
+without breaking the SmoothFolder entry.
 
 ## Appearance
 
-Each folder can use its own glass tint. Right-click a desktop folder and choose
-`Glass tint...` to select a preset or enter a custom hex color, then adjust tint strength.
-The popup uses the Windows 11 backdrop plus a translucent tint layer and a clipped native
-window region for clean rounded corners.
+Each folder stores its own glass appearance settings.
 
-## Intentional v0.1 limitations
+Use:
 
-- SmoothFolder is not yet embedded into the desktop `WorkerW` layer. It behaves
-  as a taskbar/Alt+Tab-hidden window, but `Win+D` can still hide it like a normal window.
-- Items cannot yet be reordered with drag and drop inside a folder.
-- There are no pages for large collections yet; the panel currently scrolls.
-- The popup uses the Windows 11 system backdrop, but there are not yet controls
-  for Aurora Glass-style tint, blur, radius, or opacity.
-- Windows startup integration is not implemented yet.
-- Multi-monitor positioning currently uses the primary work area to constrain the popup.
+```text
+Right-click folder → Glass tint...
+```
 
-## Suggested next steps
+to select a preset or custom hexadecimal color and change the tint strength.
 
-1. Integrate with the desktop (`WorkerW`) for true desktop-icon-like behavior.
-2. Add drag-and-drop item reordering.
-3. Add iOS-style 3x3 / 4x3 pages.
-4. Add Steam/Epic library import.
-5. Add manual icon selection and local artwork fallback.
-6. Add blur/tint/radius/size customization.
-7. Add Windows startup integration.
+The current renderer uses per-pixel transparency, layered highlights, rounded
+surfaces, and a configurable tint. A stronger background-blur implementation is
+planned once it can be added without compromising the clean rounded silhouette.
 
-## v0.1.1 changes
+## Background behavior
 
-- Renamed the project completely to `SmoothFolder`.
-- Fixed missing `System.IO` imports that prevented `LauncherService` and
-  `FolderPopupWindow` from compiling.
-- Persistent application data now uses `%LOCALAPPDATA%\SmoothFolder`.
+SmoothFolder is intended to behave like part of the desktop rather than like a
+normal application window.
+
+All SmoothFolder windows use `ShowInTaskbar="False"` and are explicitly marked
+with the Windows `WS_EX_TOOLWINDOW` extended style while `WS_EX_APPWINDOW` is
+removed. This keeps folder tiles and popups out of normal taskbar / Alt+Tab
+surfaces and also gives shell replacements a standard signal that these are
+auxiliary desktop UI windows.
+
+SmoothFolder currently remains a normal background GUI process. It does **not**
+yet parent folder tiles to Explorer's `WorkerW` desktop layer.
+
+## Data and privacy
+
+SmoothFolder works locally.
+
+Application data is stored in:
+
+```text
+%LOCALAPPDATA%\SmoothFolder
+```
+
+This currently contains:
+
+- `config.json` — folder layout and settings.
+- `Items\` — private copies of imported `.lnk` / `.url` shortcuts.
+- `Logs\` — diagnostic crash logs when an error is recorded.
+
+SmoothFolder does not need a cloud service for its core functionality.
+
+## Development
+
+### CI
+
+`.github/workflows/ci.yml` runs on pushes to `main` / `master` and on pull
+requests. It restores, builds, and performs a Windows x64 publish smoke test.
+
+### Releases
+
+`.github/workflows/release.yml` runs when a version tag is pushed:
+
+```powershell
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+The workflow:
+
+1. publishes self-contained single-file builds for `win-x64` and `win-arm64`;
+2. packages each build as a ZIP;
+3. generates SHA-256 checksums;
+4. creates a GitHub Release with automatically generated release notes.
+
+## Current limitations
+
+- Folder tiles are not yet embedded into Explorer's `WorkerW` desktop layer.
+  As a result, behavior around `Win+D`, virtual desktops, and shell restarts is
+  not yet identical to a native desktop icon.
+- Items cannot yet be reordered by dragging them within an open folder.
+- Large folders currently scroll rather than using iOS-style pages.
+- Multi-monitor popup constraints currently rely on the primary work area.
+- There is no built-in startup-with-Windows setting yet.
+- There is no automatic Steam/Epic library importer yet.
+
+## Roadmap
+
+Near-term priorities:
+
+1. `WorkerW` desktop integration.
+2. Multi-monitor-aware positioning.
+3. Drag-and-drop item reordering.
+4. iOS-style folder pages and page indicators.
+5. Improved glass blur while preserving transparent rounded corners.
+6. Startup-with-Windows support.
+7. Steam/Epic library import and higher-quality artwork fallbacks.
+
+## Project structure
+
+```text
+SmoothFolder/
+├── Models/                 Data models and persisted configuration
+├── Native/                 Win32 / DWM integration
+├── Services/               Configuration, icons, launching, imports and logging
+├── Views/                  WPF folder tiles, popups and dialogs
+├── .github/workflows/      CI and tagged GitHub release automation
+├── App.xaml
+├── App.xaml.cs
+└── SmoothFolder.csproj
+```
+
+## Status
+
+SmoothFolder is an early-stage Windows desktop customization project. APIs and
+configuration formats may change while the interaction model is being refined.
