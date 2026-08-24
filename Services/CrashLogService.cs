@@ -14,6 +14,18 @@ public static class CrashLogService
 
     public static void Log(Exception exception, string context)
     {
+        WriteEntry(
+            context,
+            exception.ToString());
+    }
+
+    public static void LogMessage(string context, string message)
+    {
+        WriteEntry(context, message);
+    }
+
+    private static void WriteEntry(string context, string body)
+    {
         try
         {
             Directory.CreateDirectory(LogDirectory);
@@ -22,7 +34,7 @@ public static class CrashLogService
                 .AppendLine(new string('-', 72))
                 .AppendLine(DateTimeOffset.Now.ToString("O"))
                 .AppendLine(context)
-                .AppendLine(exception.ToString())
+                .AppendLine(body)
                 .ToString();
 
             File.AppendAllText(LogPath, entry);

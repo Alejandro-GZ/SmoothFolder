@@ -8,8 +8,10 @@
         AllowsTransparency="True"
         Background="Transparent"
         ShowInTaskbar="False"
+        ShowActivated="False"
         AllowDrop="True"
-        Topmost="False">
+        Topmost="False"
+        Opacity="0">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="96"/>

@@ -32,6 +32,8 @@ Windows taskbar and Alt+Tab/task-switcher surfaces.
   - `WinExe` output, so no console window is created.
   - no normal Windows taskbar entry.
   - auxiliary windows are marked as tool windows and excluded from Alt+Tab.
+  - compact desktop tiles use `WS_EX_NOACTIVATE` and are kept below normal app windows.
+  - system-tray icon with quick access to the data folder and Exit.
   - single-instance process protection.
 - No game or application installation is modified by SmoothFolder.
 
@@ -122,8 +124,22 @@ removed. This keeps folder tiles and popups out of normal taskbar / Alt+Tab
 surfaces and also gives shell replacements a standard signal that these are
 auxiliary desktop UI windows.
 
-SmoothFolder currently remains a normal background GUI process. It does **not**
-yet parent folder tiles to Explorer's `WorkerW` desktop layer.
+Compact folder tiles are anchored to Explorer's desktop hierarchy. SmoothFolder
+discovers the `WorkerW` / `Progman` host that owns `SHELLDLL_DefView`, then keeps
+each transparent WPF tile immediately above that desktop host in the top-level
+Z-order. Tiles are deliberately not native-owned by Explorer: native ownership
+can force an owned tile above unrelated application windows.
+
+The compact tile also uses `WS_EX_NOACTIVATE`, so clicking it does not promote
+the tile to the foreground application. Normal application windows therefore
+remain above SmoothFolder. The large folder panel is intentionally a normal
+top-level window so it can animate, accept focus, and extend beyond the desktop
+host's client area.
+
+This integration relies on undocumented Explorer window classes and is therefore
+treated as a best-effort compatibility layer rather than a public Windows API.
+SmoothFolder periodically rediscovers the shell host and reattaches/recreates
+tiles after Explorer rebuilds its desktop hierarchy.
 
 ## Data and privacy
 
@@ -139,7 +155,7 @@ This currently contains:
 
 - `config.json` — folder layout and settings.
 - `Items\` — private copies of imported `.lnk` / `.url` shortcuts.
-- `Logs\` — diagnostic crash logs when an error is recorded.
+- `Logs\` — diagnostic and desktop-host logs.
 
 SmoothFolder does not need a cloud service for its core functionality.
 
@@ -168,9 +184,11 @@ The workflow:
 
 ## Current limitations
 
-- Folder tiles are not yet embedded into Explorer's `WorkerW` desktop layer.
-  As a result, behavior around `Win+D`, virtual desktops, and shell restarts is
-  not yet identical to a native desktop icon.
+- Desktop hosting uses undocumented Explorer internals (`Progman`, `WorkerW`
+  and `SHELLDLL_DefView`) and may need compatibility adjustments on future
+  Windows builds or with third-party desktop replacements.
+- Explorer-restart recovery currently uses lightweight periodic rediscovery
+  rather than a dedicated shell restart notification.
 - Items cannot yet be reordered by dragging them within an open folder.
 - Large folders currently scroll rather than using iOS-style pages.
 - Multi-monitor popup constraints currently rely on the primary work area.
@@ -181,7 +199,7 @@ The workflow:
 
 Near-term priorities:
 
-1. `WorkerW` desktop integration.
+1. Harden Explorer/desktop-host recovery and compatibility.
 2. Multi-monitor-aware positioning.
 3. Drag-and-drop item reordering.
 4. iOS-style folder pages and page indicators.

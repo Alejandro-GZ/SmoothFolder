@@ -70,17 +70,21 @@ public partial class FolderPopupWindow : Window
 
     public void ShowNear(Window tile)
     {
-        Owner = tile;
+        // Do not make the desktop tile the native/WPF owner of the popup.
+        // Activating an owned popup can promote its owner in the top-level
+        // Z-order group, which made the compact tile float above normal apps
+        // until the next drag/SetWindowPos corrected it.
         _anchorTile = tile;
 
+        var tileBounds = DesktopHostService.GetScreenBoundsDip(tile);
         var work = SystemParameters.WorkArea;
-        var left = tile.Left + (tile.Width / 2) - (Width / 2);
-        var top = tile.Top + tile.Height + 8;
+        var left = tileBounds.Left + (tileBounds.Width / 2) - (Width / 2);
+        var top = tileBounds.Bottom + 8;
 
         left = Math.Max(work.Left + 12, Math.Min(left, work.Right - Width - 12));
 
         if (top + Height > work.Bottom - 12)
-            top = tile.Top - Height - 8;
+            top = tileBounds.Top - Height - 8;
 
         top = Math.Max(work.Top + 12, top);
 
@@ -424,10 +428,12 @@ public partial class FolderPopupWindow : Window
         if (_anchorTile is null)
             return new Point(0, 0);
 
-        // Screen-space centres make the animation independent from whether the
-        // popup had to open above/below the folder or was dragged afterwards.
-        var folderCenterX = _anchorTile.Left + (_anchorTile.ActualWidth / 2);
-        var folderCenterY = _anchorTile.Top + (_anchorTile.ActualHeight / 2);
+        // The compact tile can be parented to WorkerW/Progman, where WPF Left/Top
+        // are no longer guaranteed to be screen coordinates. Read the HWND's
+        // actual screen rectangle for both opening and closing animations.
+        var tileBounds = DesktopHostService.GetScreenBoundsDip(_anchorTile);
+        var folderCenterX = tileBounds.Left + (tileBounds.Width / 2);
+        var folderCenterY = tileBounds.Top + (tileBounds.Height / 2);
 
         var popupCenterX = Left + (ActualWidth > 0 ? ActualWidth : Width) / 2;
         var popupCenterY = Top + (ActualHeight > 0 ? ActualHeight : Height) / 2;

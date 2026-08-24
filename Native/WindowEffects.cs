@@ -15,12 +15,16 @@ public static class WindowEffects
     private const int GWL_EXSTYLE = -20;
     private const long WS_EX_TOOLWINDOW = 0x00000080L;
     private const long WS_EX_APPWINDOW = 0x00040000L;
+    private const long WS_EX_NOACTIVATE = 0x08000000L;
 
     private const uint SWP_NOSIZE = 0x0001;
     private const uint SWP_NOMOVE = 0x0002;
     private const uint SWP_NOZORDER = 0x0004;
     private const uint SWP_NOACTIVATE = 0x0010;
     private const uint SWP_FRAMECHANGED = 0x0020;
+
+    private const int WM_MOUSEACTIVATE = 0x0021;
+    private const int MA_NOACTIVATE = 3;
 
     public static void ApplyPopupEffects(Window window, double cornerRadius = 30)
     {
@@ -48,6 +52,75 @@ public static class WindowEffects
         var hwnd = new WindowInteropHelper(window).Handle;
         if (hwnd != IntPtr.Zero)
             HideFromAltTab(hwnd);
+    }
+
+    public static void ConfigureDesktopTile(Window window)
+    {
+        var hwnd = new WindowInteropHelper(window).Handle;
+        if (hwnd == IntPtr.Zero)
+            return;
+
+        try
+        {
+            var exStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE).ToInt64();
+
+            // Desktop tiles are mouse-interactive but should never become the
+            // foreground application and jump above normal app windows.
+            exStyle |= WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
+            exStyle &= ~WS_EX_APPWINDOW;
+
+            SetWindowLongPtr(hwnd, GWL_EXSTYLE, new IntPtr(exStyle));
+
+            SetWindowPos(
+                hwnd,
+                IntPtr.Zero,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE |
+                SWP_NOSIZE |
+                SWP_NOZORDER |
+                SWP_NOACTIVATE |
+                SWP_FRAMECHANGED);
+        }
+        catch (EntryPointNotFoundException)
+        {
+            // Shell integration must never make window creation fail.
+        }
+        catch (DllNotFoundException)
+        {
+            // Shell integration must never make window creation fail.
+        }
+    }
+
+    public static void InstallDesktopTileActivationGuard(Window window)
+    {
+        var hwnd = new WindowInteropHelper(window).Handle;
+        if (hwnd == IntPtr.Zero)
+            return;
+
+        if (HwndSource.FromHwnd(hwnd) is HwndSource source)
+            source.AddHook(DesktopTileWndProc);
+    }
+
+    private static IntPtr DesktopTileWndProc(
+        IntPtr hwnd,
+        int msg,
+        IntPtr wParam,
+        IntPtr lParam,
+        ref bool handled)
+    {
+        if (msg == WM_MOUSEACTIVATE)
+        {
+            // WS_EX_NOACTIVATE is the first line of defence. Returning
+            // MA_NOACTIVATE here also prevents WPF/Explorer mouse activation
+            // paths from promoting the tile when it is clicked.
+            handled = true;
+            return new IntPtr(MA_NOACTIVATE);
+        }
+
+        return IntPtr.Zero;
     }
 
     private static void HideFromAltTab(IntPtr hwnd)
