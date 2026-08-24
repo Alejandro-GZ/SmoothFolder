@@ -3,6 +3,10 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              ShutdownMode="OnExplicitShutdown">
     <Application.Resources>
+        <!-- Windows 11 UI typeface. Explicitly reuse it for app labels so
+             dynamic item text matches the rest of SmoothFolder. -->
+        <FontFamily x:Key="UiFontFamily">Segoe UI Variable Text</FontFamily>
+
         <SolidColorBrush x:Key="TextPrimaryBrush" Color="#FFF7FAFF"/>
         <SolidColorBrush x:Key="TextSecondaryBrush" Color="#BFD5DFEE"/>
         <SolidColorBrush x:Key="GlassBrush" Color="#B31A202A"/>
@@ -32,14 +36,14 @@
         </Style>
 
         <Style x:Key="GlassScrollBarStyle" TargetType="{x:Type ScrollBar}">
-            <Setter Property="Width" Value="8"/>
+            <Setter Property="Width" Value="6"/>
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="Opacity" Value="0.58"/>
-            <Setter Property="Margin" Value="4,0,0,0"/>
+            <Setter Property="Margin" Value="2,0,0,0"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="{x:Type ScrollBar}">
-                        <Grid Width="8" Background="Transparent">
+                        <Grid Width="6" Background="Transparent">
                             <Track x:Name="PART_Track" IsDirectionReversed="True">
                                 <Track.DecreaseRepeatButton>
                                     <RepeatButton Command="{x:Static ScrollBar.PageUpCommand}"

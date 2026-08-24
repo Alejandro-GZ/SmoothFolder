@@ -34,16 +34,23 @@
                 </Border.Background>
             </Border>
 
-            <TextBlock x:Name="PromptText"
-                       Foreground="{DynamicResource TextPrimaryBrush}"
-                       FontSize="15"
-                       FontWeight="SemiBold"
-                       Margin="2,0,0,12"/>
+            <Border Background="Transparent"
+                    Cursor="SizeAll"
+                    Margin="0,0,0,12"
+                    MouseLeftButtonDown="DragHandle_MouseLeftButtonDown">
+                <TextBlock x:Name="PromptText"
+                           FontFamily="{DynamicResource UiFontFamily}"
+                           Foreground="{DynamicResource TextPrimaryBrush}"
+                           FontSize="15"
+                           FontWeight="SemiBold"
+                           Margin="2,0,0,0"/>
+            </Border>
 
             <TextBox x:Name="ValueBox"
                      Grid.Row="1"
                      Height="36"
                      VerticalContentAlignment="Center"
+                     FontFamily="{DynamicResource UiFontFamily}"
                      FontSize="14"
                      Padding="10,0"
                      BorderThickness="1"/>

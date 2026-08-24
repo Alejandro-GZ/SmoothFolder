@@ -29,6 +29,21 @@ public partial class PromptDialog : Window
         return dialog._result;
     }
 
+    private void DragHandle_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != System.Windows.Input.MouseButton.Left)
+            return;
+
+        try
+        {
+            DragMove();
+        }
+        catch (InvalidOperationException)
+        {
+            // The mouse button may be released before WPF starts the move.
+        }
+    }
+
     private void Save_Click(object sender, RoutedEventArgs e)
     {
         _result = ValueBox.Text;

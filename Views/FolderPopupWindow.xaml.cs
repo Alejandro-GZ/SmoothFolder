@@ -97,6 +97,7 @@ public partial class FolderPopupWindow : Window
             {
                 Text = "Empty folder",
                 Foreground = new SolidColorBrush(Color.FromArgb(150, 230, 238, 248)),
+                FontFamily = (FontFamily)FindResource("UiFontFamily"),
                 FontSize = 14,
                 Margin = new Thickness(6, 14, 0, 0)
             });
@@ -111,14 +112,18 @@ public partial class FolderPopupWindow : Window
             Width = 62,
             Height = 62,
             Stretch = Stretch.Uniform,
-            HorizontalAlignment = HorizontalAlignment.Center
+            HorizontalAlignment = HorizontalAlignment.Center,
+            SnapsToDevicePixels = true,
+            UseLayoutRounding = true
         };
+        RenderOptions.SetBitmapScalingMode(icon, BitmapScalingMode.HighQuality);
 
         var label = new TextBlock
         {
             Text = item.DisplayName,
             Foreground = (Brush)FindResource("TextPrimaryBrush"),
-            FontSize = 12,
+            FontFamily = (FontFamily)FindResource("UiFontFamily"),
+            FontSize = 12.5,
             TextAlignment = TextAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
             MaxWidth = 96,
@@ -131,9 +136,9 @@ public partial class FolderPopupWindow : Window
 
         var border = new Border
         {
-            Width = 116,
+            Width = 108,
             Height = 112,
-            Padding = new Thickness(8),
+            Padding = new Thickness(6),
             Margin = new Thickness(4),
             CornerRadius = new CornerRadius(18),
             Background = Brushes.Transparent,
@@ -253,6 +258,21 @@ public partial class FolderPopupWindow : Window
         _save();
         RefreshItems();
         _refreshTile();
+    }
+
+    private void DragHandle_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.Left)
+            return;
+
+        try
+        {
+            DragMove();
+        }
+        catch (InvalidOperationException)
+        {
+            // The button can be released between the mouse event and DragMove.
+        }
     }
 
     private void ApplyGlassAppearance()

@@ -38,13 +38,19 @@
                 </Border.Background>
             </Border>
 
-            <TextBlock Text="Glass tint"
-                       Foreground="{DynamicResource TextPrimaryBrush}"
-                       FontSize="20"
-                       FontWeight="SemiBold"/>
+            <Border Background="Transparent"
+                    Cursor="SizeAll"
+                    MouseLeftButtonDown="DragHandle_MouseLeftButtonDown">
+                <TextBlock Text="Glass tint"
+                           FontFamily="{DynamicResource UiFontFamily}"
+                           Foreground="{DynamicResource TextPrimaryBrush}"
+                           FontSize="20"
+                           FontWeight="SemiBold"/>
+            </Border>
 
             <TextBlock Grid.Row="1"
                        Text="Choose a tint color and how strongly it colors the glass."
+                       FontFamily="{DynamicResource UiFontFamily}"
                        Foreground="{DynamicResource TextSecondaryBrush}"
                        FontSize="12"
                        Margin="0,5,0,16"/>
@@ -67,6 +73,7 @@
                 </Grid.ColumnDefinitions>
 
                 <TextBlock Text="Color"
+                           FontFamily="{DynamicResource UiFontFamily}"
                            Foreground="{DynamicResource TextPrimaryBrush}"
                            VerticalAlignment="Center"
                            Margin="0,0,10,0"/>
@@ -80,6 +87,7 @@
 
                 <TextBlock Grid.Column="3"
                            Text="Tint strength"
+                           FontFamily="{DynamicResource UiFontFamily}"
                            Foreground="{DynamicResource TextPrimaryBrush}"
                            VerticalAlignment="Center"
                            Margin="0,0,10,0"/>
@@ -102,6 +110,7 @@
                     Margin="0,0,0,16">
                 <Grid>
                     <TextBlock Text="SmoothFolder glass preview"
+                               FontFamily="{DynamicResource UiFontFamily}"
                                Foreground="White"
                                FontSize="14"
                                FontWeight="SemiBold"

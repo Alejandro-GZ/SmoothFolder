@@ -8,7 +8,9 @@
         ShowInTaskbar="False"
         AllowsTransparency="True"
         Background="Transparent"
-        AllowDrop="True">
+        AllowDrop="True"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True">
     <Border x:Name="PopupCard"
             Margin="1"
             CornerRadius="30"
@@ -47,11 +49,17 @@
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
 
-                <TextBlock x:Name="TitleText"
-                           FontSize="25"
-                           FontWeight="SemiBold"
-                           Foreground="{DynamicResource TextPrimaryBrush}"
-                           Margin="4,0,0,20"/>
+                <Border Background="Transparent"
+                        Margin="0,0,0,14"
+                        Cursor="SizeAll"
+                        MouseLeftButtonDown="DragHandle_MouseLeftButtonDown">
+                    <TextBlock x:Name="TitleText"
+                               FontFamily="{DynamicResource UiFontFamily}"
+                               FontSize="25"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextPrimaryBrush}"
+                               Margin="4,0,0,6"/>
+                </Border>
 
                 <ScrollViewer Grid.Row="1"
                               VerticalScrollBarVisibility="Auto"
@@ -62,7 +70,8 @@
                                BasedOn="{StaticResource GlassScrollBarStyle}"/>
                     </ScrollViewer.Resources>
                     <WrapPanel x:Name="ItemsPanel"
-                               Orientation="Horizontal"/>
+                               Orientation="Horizontal"
+                               HorizontalAlignment="Left"/>
                 </ScrollViewer>
             </Grid>
         </Grid>
