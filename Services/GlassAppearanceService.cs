@@ -6,7 +6,7 @@ namespace SmoothFolder.Services;
 public static class GlassAppearanceService
 {
     public const string DefaultTint = "#3C5064";
-    public const double DefaultOpacity = 0.42;
+    public const double DefaultOpacity = 0.36;
 
     public static SolidColorBrush CreateTintBrush(string? hex, double opacity, double opacityScale = 1.0)
     {

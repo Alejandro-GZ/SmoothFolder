@@ -45,9 +45,15 @@ public partial class GlassTintDialog : Window
 
     private void UpdatePreview()
     {
-        var brush = GlassAppearanceService.CreateTintBrush(HexBox.Text, OpacitySlider.Value);
-        DialogCard.Background = brush;
-        Preview.Background = GlassAppearanceService.CreateTintBrush(HexBox.Text, OpacitySlider.Value, 1.15);
+        DialogCard.Background = GlassAppearanceService.CreateTintBrush(
+            HexBox.Text,
+            OpacitySlider.Value,
+            opacityScale: 0.78);
+
+        Preview.Background = GlassAppearanceService.CreateTintBrush(
+            HexBox.Text,
+            OpacitySlider.Value,
+            opacityScale: 0.92);
     }
 
     private void Apply_Click(object sender, RoutedEventArgs e)

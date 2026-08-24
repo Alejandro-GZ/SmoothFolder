@@ -259,7 +259,8 @@ public partial class FolderPopupWindow : Window
     {
         PopupCard.Background = GlassAppearanceService.CreateTintBrush(
             _folder.GlassTint,
-            _folder.GlassOpacity);
+            _folder.GlassOpacity,
+            opacityScale: 0.78);
     }
 
     private void AnimateOpen()

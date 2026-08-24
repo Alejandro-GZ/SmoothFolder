@@ -69,7 +69,7 @@ public partial class FolderTileWindow : Window
         FolderCard.Background = GlassAppearanceService.CreateTintBrush(
             _folder.GlassTint,
             _folder.GlassOpacity,
-            opacityScale: 0.82);
+            opacityScale: 0.72);
         PreviewGrid.Children.Clear();
 
         foreach (var item in _folder.Items.Take(9))

@@ -7,10 +7,11 @@
         ResizeMode="NoResize"
         ShowInTaskbar="False"
         WindowStartupLocation="CenterScreen"
-        Background="#01000000">
+        AllowsTransparency="True"
+        Background="Transparent">
     <Border Padding="20"
             CornerRadius="22"
-            Background="#EE141A22"
+            Background="#B8141A22"
             BorderBrush="#55FFFFFF"
             BorderThickness="1">
         <Grid>
@@ -19,6 +20,19 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
+
+            <Border Margin="-19"
+                    Grid.RowSpan="3"
+                    CornerRadius="21"
+                    IsHitTestVisible="False">
+                <Border.Background>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                        <GradientStop Color="#2CFFFFFF" Offset="0"/>
+                        <GradientStop Color="#0CFFFFFF" Offset="0.38"/>
+                        <GradientStop Color="#14000000" Offset="1"/>
+                    </LinearGradientBrush>
+                </Border.Background>
+            </Border>
 
             <TextBlock x:Name="PromptText"
                        Foreground="{DynamicResource TextPrimaryBrush}"

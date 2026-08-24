@@ -6,7 +6,8 @@
         WindowStyle="None"
         ResizeMode="NoResize"
         ShowInTaskbar="False"
-        Background="#01000000"
+        AllowsTransparency="True"
+        Background="Transparent"
         AllowDrop="True">
     <Border x:Name="PopupCard"
             Margin="1"
@@ -19,10 +20,24 @@
         </Border.RenderTransform>
 
         <Grid>
-            <!-- A subtle inner highlight makes the surface read more like layered glass. -->
+            <!-- Layered highlights make the translucent tint read as glass while
+                 keeping the outer HWND completely transparent. -->
             <Border Margin="1"
                     CornerRadius="29"
-                    BorderBrush="#24FFFFFF"
+                    IsHitTestVisible="False">
+                <Border.Background>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                        <GradientStop Color="#32FFFFFF" Offset="0"/>
+                        <GradientStop Color="#14FFFFFF" Offset="0.30"/>
+                        <GradientStop Color="#05000000" Offset="0.62"/>
+                        <GradientStop Color="#16000000" Offset="1"/>
+                    </LinearGradientBrush>
+                </Border.Background>
+            </Border>
+
+            <Border Margin="1"
+                    CornerRadius="29"
+                    BorderBrush="#32FFFFFF"
                     BorderThickness="1"
                     IsHitTestVisible="False"/>
 

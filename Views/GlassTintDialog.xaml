@@ -7,7 +7,8 @@
         ResizeMode="NoResize"
         ShowInTaskbar="False"
         WindowStartupLocation="CenterOwner"
-        Background="#01000000">
+        AllowsTransparency="True"
+        Background="Transparent">
     <Border x:Name="DialogCard"
             Margin="1"
             Padding="22"
@@ -23,6 +24,19 @@
                 <RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
+
+            <Border Margin="-21"
+                    Grid.RowSpan="6"
+                    CornerRadius="25"
+                    IsHitTestVisible="False">
+                <Border.Background>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                        <GradientStop Color="#2AFFFFFF" Offset="0"/>
+                        <GradientStop Color="#0FFFFFFF" Offset="0.34"/>
+                        <GradientStop Color="#12000000" Offset="1"/>
+                    </LinearGradientBrush>
+                </Border.Background>
+            </Border>
 
             <TextBlock Text="Glass tint"
                        Foreground="{DynamicResource TextPrimaryBrush}"

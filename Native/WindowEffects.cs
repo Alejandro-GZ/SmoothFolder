@@ -21,19 +21,17 @@ public static class WindowEffects
         if (hwnd == IntPtr.Zero)
             return;
 
-        // All DWM decoration is optional. The popup must remain usable even if
-        // a Windows build, graphics configuration, or compatibility layer does
-        // not support one of these attributes.
-        if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
+        // AllowsTransparency gives WPF per-pixel alpha. Combining that with a
+        // rectangular DWM system backdrop and a second native HRGN creates two
+        // competing corner silhouettes and can leave a bright wedge outside
+        // the WPF CornerRadius. Let WPF own the silhouette in transparent mode.
+        if (!window.AllowsTransparency && OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
         {
             TrySetDwmAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND);
             TrySetDwmAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, DWMSBT_TRANSIENTWINDOW);
+            ApplyRoundedRegion(hwnd, cornerRadius);
+            window.SizeChanged += (_, _) => ApplyRoundedRegion(hwnd, cornerRadius);
         }
-
-        // WPF's border can be rounded while the native HWND remains rectangular.
-        // Clip the real window too, which removes the square corner artifacts.
-        ApplyRoundedRegion(hwnd, cornerRadius);
-        window.SizeChanged += (_, _) => ApplyRoundedRegion(hwnd, cornerRadius);
 
         HideFromAltTab(hwnd);
     }
