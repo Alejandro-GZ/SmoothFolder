@@ -1,0 +1,11 @@
+<Application x:Class="SmoothFolder.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             ShutdownMode="OnExplicitShutdown">
+    <Application.Resources>
+        <SolidColorBrush x:Key="TextPrimaryBrush" Color="#FFF7FAFF"/>
+        <SolidColorBrush x:Key="TextSecondaryBrush" Color="#BFD5DFEE"/>
+        <SolidColorBrush x:Key="GlassBrush" Color="#B31A202A"/>
+        <SolidColorBrush x:Key="GlassBorderBrush" Color="#55FFFFFF"/>
+    </Application.Resources>
+</Application>
