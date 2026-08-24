@@ -16,12 +16,18 @@ public partial class FolderPopupWindow : Window
     private const string InternalItemDragFormat =
         "SmoothFolder.InternalAppItemId";
 
+    private const int ItemsPerPage = 12;
+    private const int PageColumns = 4;
+    private const double PageAnimationDistance = 24;
+    private const double DragPageEdgeWidth = 52;
+
     private readonly FolderConfig _folder;
     private readonly IconService _icons;
     private readonly LauncherService _launcher;
     private readonly ShortcutImportService _importer;
     private readonly Action _save;
     private readonly Action _refreshTile;
+    private readonly System.Windows.Threading.DispatcherTimer _dragPageTimer;
 
     private bool _isClosing;
     private bool _allowClose;
@@ -33,6 +39,8 @@ public partial class FolderPopupWindow : Window
     private Border? _dropIndicatorCard;
     private Border? _dropIndicatorMarker;
     private int? _dropInsertionIndex;
+    private int _currentPage;
+    private int _pendingDragPageDelta;
 
     public FolderPopupWindow(
         FolderConfig folder,
@@ -51,6 +59,12 @@ public partial class FolderPopupWindow : Window
         _save = save;
         _refreshTile = refreshTile;
 
+        _dragPageTimer = new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(560)
+        };
+        _dragPageTimer.Tick += (_, _) => OnDragPageTimerTick();
+
         TitleText.Text = folder.Name;
         ApplyGlassAppearance();
 
@@ -59,11 +73,8 @@ public partial class FolderPopupWindow : Window
         Closing += OnClosing;
         SourceInitialized += (_, _) => WindowEffects.ApplyPopupEffects(this, 30);
 
-        PreviewKeyDown += (_, e) =>
-        {
-            if (e.Key == Key.Escape)
-                RequestClose();
-        };
+        PreviewKeyDown += OnPreviewKeyDown;
+        PreviewMouseWheel += OnPreviewMouseWheel;
 
         DragOver += OnPopupDragOver;
         DragLeave += OnPopupDragLeave;
@@ -202,6 +213,7 @@ public partial class FolderPopupWindow : Window
             return;
 
         _isClosing = true;
+        CancelDragPageSwitch();
         AnimateClose(() =>
         {
             _allowClose = true;
@@ -218,26 +230,237 @@ public partial class FolderPopupWindow : Window
         RequestClose();
     }
 
+    private int PageCount =>
+        Math.Max(
+            1,
+            (_folder.Items.Count + ItemsPerPage - 1) / ItemsPerPage);
+
+    private int CurrentPageStartIndex =>
+        _currentPage * ItemsPerPage;
+
+    private int CurrentPageEndInsertionIndex =>
+        Math.Min(
+            CurrentPageStartIndex + ItemsPerPage,
+            _folder.Items.Count);
+
     private void RefreshItems()
     {
         ClearDropIndicator();
         _pressedItem = null;
+
+        _currentPage = Math.Clamp(
+            _currentPage,
+            0,
+            PageCount - 1);
+
         ItemsPanel.Children.Clear();
 
-        foreach (var item in _folder.Items)
-            ItemsPanel.Children.Add(BuildItem(item));
-
-        if (_folder.Items.Count == 0)
+        foreach (var item in _folder.Items
+                     .Skip(CurrentPageStartIndex)
+                     .Take(ItemsPerPage))
         {
-            ItemsPanel.Children.Add(new TextBlock
-            {
-                Text = "Empty folder",
-                Foreground = new SolidColorBrush(Color.FromArgb(150, 230, 238, 248)),
-                FontFamily = (FontFamily)FindResource("UiFontFamily"),
-                FontSize = 14,
-                Margin = new Thickness(6, 14, 0, 0)
-            });
+            ItemsPanel.Children.Add(BuildItem(item));
         }
+
+        EmptyState.Visibility =
+            _folder.Items.Count == 0
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+
+        UpdatePageIndicators();
+    }
+
+    private void UpdatePageIndicators()
+    {
+        PageIndicators.Children.Clear();
+
+        var pageCount = PageCount;
+
+        PageIndicators.Visibility =
+            pageCount > 1
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+
+        if (pageCount <= 1)
+            return;
+
+        for (var page = 0; page < pageCount; page++)
+        {
+            var targetPage = page;
+            var isCurrent = page == _currentPage;
+
+            var dot = new Border
+            {
+                Width = isCurrent ? 7.5 : 6,
+                Height = isCurrent ? 7.5 : 6,
+                CornerRadius = new CornerRadius(4),
+                Background = new SolidColorBrush(
+                    isCurrent
+                        ? Color.FromArgb(225, 255, 255, 255)
+                        : Color.FromArgb(105, 255, 255, 255)),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                IsHitTestVisible = false
+            };
+
+            var hitTarget = new Border
+            {
+                Width = 18,
+                Height = 18,
+                Background = Brushes.Transparent,
+                Cursor = Cursors.Hand,
+                Child = dot,
+                ToolTip = $"Page {page + 1}"
+            };
+
+            hitTarget.MouseLeftButtonUp += (_, e) =>
+            {
+                if (e.ChangedButton != MouseButton.Left)
+                    return;
+
+                NavigateToPage(
+                    targetPage,
+                    animate: true);
+
+                e.Handled = true;
+            };
+
+            PageIndicators.Children.Add(hitTarget);
+        }
+    }
+
+    private void NavigateToPage(
+        int requestedPage,
+        bool animate)
+    {
+        var targetPage = Math.Clamp(
+            requestedPage,
+            0,
+            PageCount - 1);
+
+        if (targetPage == _currentPage)
+            return;
+
+        var direction =
+            targetPage > _currentPage
+                ? 1
+                : -1;
+
+        _currentPage = targetPage;
+        RefreshItems();
+
+        if (animate)
+            AnimatePageEntry(direction);
+    }
+
+    private void AnimatePageEntry(int direction)
+    {
+        if (ItemsPanel.RenderTransform is not TranslateTransform translate)
+            return;
+
+        // Do not animate the page opacity. Rebuilding a page and immediately
+        // dropping the whole icon grid to 28% made cached Shell icons look like
+        // they disappeared/reloaded for one frame, even though the ImageSource
+        // itself was already cached. Keep icons fully opaque and animate only a
+        // short horizontal translation.
+        ItemsPanel.BeginAnimation(
+            OpacityProperty,
+            null);
+
+        ItemsPanel.Opacity = 1;
+
+        translate.BeginAnimation(
+            TranslateTransform.XProperty,
+            null);
+
+        var ease = new QuarticEase
+        {
+            EasingMode = EasingMode.EaseOut
+        };
+
+        translate.X =
+            direction * PageAnimationDistance;
+
+        var slide = new DoubleAnimation(
+            direction * PageAnimationDistance,
+            0,
+            TimeSpan.FromMilliseconds(175))
+        {
+            EasingFunction = ease,
+            FillBehavior = FillBehavior.Stop
+        };
+
+        slide.Completed += (_, _) =>
+        {
+            translate.X = 0;
+            ItemsPanel.Opacity = 1;
+        };
+
+        translate.BeginAnimation(
+            TranslateTransform.XProperty,
+            slide);
+    }
+
+    private void OnPreviewMouseWheel(
+        object sender,
+        MouseWheelEventArgs e)
+    {
+        if (_internalDragInProgress ||
+            PageCount <= 1)
+        {
+            return;
+        }
+
+        var delta =
+            e.Delta < 0
+                ? 1
+                : -1;
+
+        var target =
+            Math.Clamp(
+                _currentPage + delta,
+                0,
+                PageCount - 1);
+
+        if (target == _currentPage)
+            return;
+
+        NavigateToPage(
+            target,
+            animate: true);
+
+        e.Handled = true;
+    }
+
+    private void OnPreviewKeyDown(
+        object sender,
+        KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape)
+        {
+            RequestClose();
+            e.Handled = true;
+            return;
+        }
+
+        if (PageCount <= 1)
+            return;
+
+        var delta = e.Key switch
+        {
+            Key.Left or Key.PageUp => -1,
+            Key.Right or Key.PageDown => 1,
+            _ => 0
+        };
+
+        if (delta == 0)
+            return;
+
+        NavigateToPage(
+            _currentPage + delta,
+            animate: true);
+
+        e.Handled = true;
     }
 
     private FrameworkElement BuildItem(AppItem item)
@@ -418,6 +641,7 @@ public partial class FolderPopupWindow : Window
 
         _internalDragInProgress = true;
         _pressedItem = null;
+        CancelDragPageSwitch();
 
         var previousOpacity = card.Opacity;
         card.Opacity = 0.52;
@@ -437,6 +661,7 @@ public partial class FolderPopupWindow : Window
         {
             card.Opacity = previousOpacity;
             _internalDragInProgress = false;
+            CancelDragPageSwitch();
             ClearDropIndicator();
         }
 
@@ -523,16 +748,24 @@ public partial class FolderPopupWindow : Window
     {
         if (IsInternalItemDrag(e.Data))
         {
-            // If the pointer is not currently over an item card, dropping on
-            // the remaining folder surface moves the item to the end.
             e.Effects = DragDropEffects.Move;
 
+            // A drop on unused space appends to the visible page rather than
+            // unexpectedly jumping to the global end of a large folder.
             if (_dropIndicatorCard is null)
-                _dropInsertionIndex = _folder.Items.Count;
+            {
+                _dropInsertionIndex =
+                    CurrentPageEndInsertionIndex;
+            }
+
+            UpdateDragPageSwitch(
+                e.GetPosition(PopupCard));
 
             e.Handled = true;
             return;
         }
+
+        CancelDragPageSwitch();
 
         if (e.Data.GetDataPresent(DataFormats.FileDrop))
         {
@@ -555,8 +788,84 @@ public partial class FolderPopupWindow : Window
             point.X > ActualWidth ||
             point.Y > ActualHeight)
         {
+            CancelDragPageSwitch();
             ClearDropIndicator();
         }
+    }
+
+    private void UpdateDragPageSwitch(Point point)
+    {
+        if (!_internalDragInProgress ||
+            PageCount <= 1)
+        {
+            CancelDragPageSwitch();
+            return;
+        }
+
+        var delta = 0;
+
+        if (point.X <= DragPageEdgeWidth &&
+            _currentPage > 0)
+        {
+            delta = -1;
+        }
+        else if (point.X >= PopupCard.ActualWidth - DragPageEdgeWidth &&
+                 _currentPage < PageCount - 1)
+        {
+            delta = 1;
+        }
+
+        if (delta == 0)
+        {
+            CancelDragPageSwitch();
+            return;
+        }
+
+        if (_dragPageTimer.IsEnabled &&
+            _pendingDragPageDelta == delta)
+        {
+            return;
+        }
+
+        _pendingDragPageDelta = delta;
+        _dragPageTimer.Stop();
+        _dragPageTimer.Start();
+    }
+
+    private void OnDragPageTimerTick()
+    {
+        _dragPageTimer.Stop();
+
+        if (!_internalDragInProgress ||
+            _pendingDragPageDelta == 0)
+        {
+            return;
+        }
+
+        var target =
+            Math.Clamp(
+                _currentPage + _pendingDragPageDelta,
+                0,
+                PageCount - 1);
+
+        _pendingDragPageDelta = 0;
+
+        if (target == _currentPage)
+            return;
+
+        NavigateToPage(
+            target,
+            animate: true);
+
+        // A new page has different insertion slots. Keep the drag operation
+        // alive, but require a fresh DragOver to choose the next slot.
+        ClearDropIndicator();
+    }
+
+    private void CancelDragPageSwitch()
+    {
+        _dragPageTimer.Stop();
+        _pendingDragPageDelta = 0;
     }
 
     private bool TryGetInternalDraggedItem(
@@ -651,6 +960,12 @@ public partial class FolderPopupWindow : Window
             item);
 
         _save();
+
+        _currentPage = Math.Clamp(
+            _currentPage,
+            0,
+            PageCount - 1);
+
         RefreshItems();
 
         // The compact 3x3 preview reflects the first nine items, so it must be
@@ -710,12 +1025,20 @@ public partial class FolderPopupWindow : Window
         }
 
         _save();
+
+        _currentPage = Math.Clamp(
+            _currentPage,
+            0,
+            PageCount - 1);
+
         RefreshItems();
         _refreshTile();
     }
 
     private void OnDrop(object sender, DragEventArgs e)
     {
+        CancelDragPageSwitch();
+
         if (TryGetInternalDraggedItem(
                 e.Data,
                 out var draggedItem))
@@ -723,7 +1046,7 @@ public partial class FolderPopupWindow : Window
             ReorderItem(
                 draggedItem,
                 _dropInsertionIndex ??
-                _folder.Items.Count);
+                CurrentPageEndInsertionIndex);
 
             e.Effects = DragDropEffects.Move;
             e.Handled = true;
@@ -734,6 +1057,7 @@ public partial class FolderPopupWindow : Window
             return;
 
         var paths = (string[])e.Data.GetData(DataFormats.FileDrop);
+        var itemCountBefore = _folder.Items.Count;
 
         foreach (var path in paths)
         {
@@ -752,6 +1076,10 @@ public partial class FolderPopupWindow : Window
         }
 
         _save();
+
+        if (_folder.Items.Count > itemCountBefore)
+            _currentPage = PageCount - 1;
+
         RefreshItems();
         _refreshTile();
 
