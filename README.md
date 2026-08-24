@@ -58,6 +58,14 @@ bin\Release\net10.0-windows\
 6. Drag the folder to reposition it.
 7. Right-click the folder to rename it, create another folder, or delete it.
 
+
+## Appearance
+
+Each folder can use its own glass tint. Right-click a desktop folder and choose
+`Glass tint...` to select a preset or enter a custom hex color, then adjust tint strength.
+The popup uses the Windows 11 backdrop plus a translucent tint layer and a clipped native
+window region for clean rounded corners.
+
 ## Intentional v0.1 limitations
 
 - SmoothFolder is not yet embedded into the desktop `WorkerW` layer. It behaves

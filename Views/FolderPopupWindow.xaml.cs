@@ -37,6 +37,7 @@ public partial class FolderPopupWindow : Window
         _refreshTile = refreshTile;
 
         TitleText.Text = folder.Name;
+        ApplyGlassAppearance();
 
         Loaded += (_, _) =>
         {
@@ -44,7 +45,7 @@ public partial class FolderPopupWindow : Window
             AnimateOpen();
         };
 
-        SourceInitialized += (_, _) => WindowEffects.ApplyPopupEffects(this);
+        SourceInitialized += (_, _) => WindowEffects.ApplyPopupEffects(this, 30);
         PreviewKeyDown += (_, e) =>
         {
             if (e.Key == Key.Escape)
@@ -94,7 +95,7 @@ public partial class FolderPopupWindow : Window
         {
             ItemsPanel.Children.Add(new TextBlock
             {
-                Text = "Carpeta vacía",
+                Text = "Empty folder",
                 Foreground = new SolidColorBrush(Color.FromArgb(150, 230, 238, 248)),
                 FontSize = 14,
                 Margin = new Thickness(6, 14, 0, 0)
@@ -158,7 +159,7 @@ public partial class FolderPopupWindow : Window
             {
                 MessageBox.Show(
                     ex.Message,
-                    "No se pudo abrir",
+                    "Could not open item",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
             }
@@ -177,10 +178,10 @@ public partial class FolderPopupWindow : Window
     {
         var menu = new ContextMenu();
 
-        var rename = new MenuItem { Header = "Renombrar" };
+        var rename = new MenuItem { Header = "Rename" };
         rename.Click += (_, _) =>
         {
-            var name = PromptDialog.Show("Nombre mostrado", item.DisplayName);
+            var name = PromptDialog.Show("Display name", item.DisplayName);
             if (!string.IsNullOrWhiteSpace(name))
             {
                 item.DisplayName = name.Trim();
@@ -190,13 +191,13 @@ public partial class FolderPopupWindow : Window
             }
         };
 
-        var remove = new MenuItem { Header = "Quitar de la carpeta" };
+        var remove = new MenuItem { Header = "Remove from folder" };
         remove.Click += (_, _) =>
         {
             _folder.Items.Remove(item);
 
-            // Si el acceso fue copiado a AppData, lo eliminamos. No se toca el
-            // original del usuario.
+            // If the shortcut was copied to AppData, delete that private copy.
+            // The user's original file is never touched.
             try
             {
                 var appDataRoot = Path.Combine(
@@ -211,8 +212,8 @@ public partial class FolderPopupWindow : Window
             }
             catch
             {
-                // La configuración se puede limpiar aunque un archivo temporal
-                // no se haya podido borrar.
+                // The configuration can still be cleaned even if a private copy
+                // could not be deleted.
             }
 
             _save();
@@ -243,7 +244,7 @@ public partial class FolderPopupWindow : Window
             {
                 MessageBox.Show(
                     ex.Message,
-                    "No se pudo añadir",
+                    "Could not add item",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
             }
@@ -252,6 +253,13 @@ public partial class FolderPopupWindow : Window
         _save();
         RefreshItems();
         _refreshTile();
+    }
+
+    private void ApplyGlassAppearance()
+    {
+        PopupCard.Background = GlassAppearanceService.CreateTintBrush(
+            _folder.GlassTint,
+            _folder.GlassOpacity);
     }
 
     private void AnimateOpen()

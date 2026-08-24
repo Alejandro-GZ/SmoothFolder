@@ -66,6 +66,10 @@ public partial class FolderTileWindow : Window
     public void Refresh()
     {
         FolderName.Text = _folder.Name;
+        FolderCard.Background = GlassAppearanceService.CreateTintBrush(
+            _folder.GlassTint,
+            _folder.GlassOpacity,
+            opacityScale: 0.82);
         PreviewGrid.Children.Clear();
 
         foreach (var item in _folder.Items.Take(9))
@@ -117,8 +121,8 @@ public partial class FolderTileWindow : Window
         }
         catch
         {
-            // DragMove puede lanzar InvalidOperationException si el botón se libera
-            // justo al empezar el drag. No es un error crítico.
+            // DragMove can throw if the mouse button is released exactly when
+            // dragging starts. This is not a fatal error.
         }
 
         _folder.X = Left;
@@ -220,7 +224,7 @@ public partial class FolderTileWindow : Window
             {
                 MessageBox.Show(
                     ex.Message,
-                    "No se pudo añadir",
+                    "Could not add item",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
             }
@@ -234,13 +238,13 @@ public partial class FolderTileWindow : Window
     {
         var menu = new ContextMenu();
 
-        var open = new MenuItem { Header = "Abrir" };
+        var open = new MenuItem { Header = "Open" };
         open.Click += (_, _) => OpenFolder();
 
-        var rename = new MenuItem { Header = "Renombrar" };
+        var rename = new MenuItem { Header = "Rename" };
         rename.Click += (_, _) =>
         {
-            var result = PromptDialog.Show("Nombre de la carpeta", _folder.Name);
+            var result = PromptDialog.Show("Folder name", _folder.Name);
             if (!string.IsNullOrWhiteSpace(result))
             {
                 _folder.Name = result.Trim();
@@ -249,15 +253,38 @@ public partial class FolderTileWindow : Window
             }
         };
 
-        var add = new MenuItem { Header = "Nueva carpeta" };
+        var tint = new MenuItem { Header = "Glass tint..." };
+        tint.Click += (_, _) =>
+        {
+            var dialog = new GlassTintDialog(_folder)
+            {
+                Owner = this
+            };
+
+            if (dialog.ShowDialog() == true)
+            {
+                _folder.GlassTint = dialog.SelectedTint;
+                _folder.GlassOpacity = dialog.SelectedOpacity;
+                _save();
+                Refresh();
+
+                if (_popup is { IsVisible: true })
+                {
+                    _popup.Close();
+                    _popup = null;
+                }
+            }
+        };
+
+        var add = new MenuItem { Header = "New folder" };
         add.Click += (_, _) => _newFolder(new Point(Left, Top));
 
-        var delete = new MenuItem { Header = "Eliminar carpeta" };
+        var delete = new MenuItem { Header = "Delete folder" };
         delete.Click += (_, _) =>
         {
             if (MessageBox.Show(
-                    $"¿Eliminar «{_folder.Name}»?\n\nNo se desinstala ni borra ningún juego.",
-                    "Eliminar carpeta",
+                    $"Delete '{_folder.Name}'?\n\nThis does not uninstall or delete any game.",
+                    "Delete folder",
                     MessageBoxButton.YesNo,
                     MessageBoxImage.Question) == MessageBoxResult.Yes)
             {
@@ -265,11 +292,12 @@ public partial class FolderTileWindow : Window
             }
         };
 
-        var exit = new MenuItem { Header = "Salir de SmoothFolder" };
+        var exit = new MenuItem { Header = "Exit SmoothFolder" };
         exit.Click += (_, _) => _exitApp();
 
         menu.Items.Add(open);
         menu.Items.Add(rename);
+        menu.Items.Add(tint);
         menu.Items.Add(add);
         menu.Items.Add(new Separator());
         menu.Items.Add(delete);

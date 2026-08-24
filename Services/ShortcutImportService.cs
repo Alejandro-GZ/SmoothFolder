@@ -15,13 +15,13 @@ public sealed class ShortcutImportService
     public AppItem Import(string sourcePath, FolderConfig folder)
     {
         if (!File.Exists(sourcePath) && !Directory.Exists(sourcePath))
-            throw new FileNotFoundException("El elemento arrastrado ya no existe.", sourcePath);
+            throw new FileNotFoundException("The dropped item no longer exists.", sourcePath);
 
         var ext = Path.GetExtension(sourcePath).ToLowerInvariant();
         var storedPath = sourcePath;
 
-        // Los accesos .lnk/.url se copian a AppData para que puedas limpiar el
-        // escritorio después sin romper la carpeta.
+        // .lnk/.url shortcuts are copied to AppData so the desktop can be
+        // cleaned later without breaking the SmoothFolder entry.
         if (File.Exists(sourcePath) && (ext == ".lnk" || ext == ".url"))
         {
             var targetDir = _config.GetFolderItemsDirectory(folder.Id);

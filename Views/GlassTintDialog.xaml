@@ -1,0 +1,119 @@
+<Window x:Class="SmoothFolder.Views.GlassTintDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Width="440"
+        Height="330"
+        WindowStyle="None"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner"
+        Background="#01000000">
+    <Border x:Name="DialogCard"
+            Margin="1"
+            Padding="22"
+            CornerRadius="26"
+            BorderBrush="#66FFFFFF"
+            BorderThickness="1">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <TextBlock Text="Glass tint"
+                       Foreground="{DynamicResource TextPrimaryBrush}"
+                       FontSize="20"
+                       FontWeight="SemiBold"/>
+
+            <TextBlock Grid.Row="1"
+                       Text="Choose a tint color and how strongly it colors the glass."
+                       Foreground="{DynamicResource TextSecondaryBrush}"
+                       FontSize="12"
+                       Margin="0,5,0,16"/>
+
+            <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,14">
+                <Button Tag="#3C5064" Click="Preset_Click" Width="42" Height="42" Margin="0,0,9,0" Background="#3C5064" BorderBrush="#55FFFFFF"/>
+                <Button Tag="#24272E" Click="Preset_Click" Width="42" Height="42" Margin="0,0,9,0" Background="#24272E" BorderBrush="#55FFFFFF"/>
+                <Button Tag="#5B4B73" Click="Preset_Click" Width="42" Height="42" Margin="0,0,9,0" Background="#5B4B73" BorderBrush="#55FFFFFF"/>
+                <Button Tag="#315E5A" Click="Preset_Click" Width="42" Height="42" Margin="0,0,9,0" Background="#315E5A" BorderBrush="#55FFFFFF"/>
+                <Button Tag="#6B4658" Click="Preset_Click" Width="42" Height="42" Background="#6B4658" BorderBrush="#55FFFFFF"/>
+            </StackPanel>
+
+            <Grid Grid.Row="3" Margin="0,0,0,14">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="120"/>
+                    <ColumnDefinition Width="22"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Text="Color"
+                           Foreground="{DynamicResource TextPrimaryBrush}"
+                           VerticalAlignment="Center"
+                           Margin="0,0,10,0"/>
+
+                <TextBox x:Name="HexBox"
+                         Grid.Column="1"
+                         Height="34"
+                         Padding="9,0"
+                         VerticalContentAlignment="Center"
+                         TextChanged="HexBox_TextChanged"/>
+
+                <TextBlock Grid.Column="3"
+                           Text="Tint strength"
+                           Foreground="{DynamicResource TextPrimaryBrush}"
+                           VerticalAlignment="Center"
+                           Margin="0,0,10,0"/>
+
+                <Slider x:Name="OpacitySlider"
+                        Grid.Column="4"
+                        Minimum="0.12"
+                        Maximum="0.72"
+                        TickFrequency="0.05"
+                        ValueChanged="OpacitySlider_ValueChanged"
+                        VerticalAlignment="Center"/>
+            </Grid>
+
+            <Border x:Name="Preview"
+                    Grid.Row="4"
+                    MinHeight="72"
+                    CornerRadius="18"
+                    BorderBrush="#66FFFFFF"
+                    BorderThickness="1"
+                    Margin="0,0,0,16">
+                <Grid>
+                    <TextBlock Text="SmoothFolder glass preview"
+                               Foreground="White"
+                               FontSize="14"
+                               FontWeight="SemiBold"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"/>
+                    <Border Margin="1"
+                            CornerRadius="17"
+                            BorderBrush="#22FFFFFF"
+                            BorderThickness="1"
+                            IsHitTestVisible="False"/>
+                </Grid>
+            </Border>
+
+            <StackPanel Grid.Row="5"
+                        Orientation="Horizontal"
+                        HorizontalAlignment="Right">
+                <Button Content="Cancel"
+                        Width="88"
+                        Height="34"
+                        Margin="0,0,8,0"
+                        Click="Cancel_Click"/>
+                <Button Content="Apply"
+                        Width="88"
+                        Height="34"
+                        Click="Apply_Click"/>
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

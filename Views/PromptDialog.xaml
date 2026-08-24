@@ -38,12 +38,12 @@
                         Orientation="Horizontal"
                         HorizontalAlignment="Right"
                         VerticalAlignment="Bottom">
-                <Button Content="Cancelar"
+                <Button Content="Cancel"
                         Width="86"
                         Height="32"
                         Margin="0,14,8,0"
                         Click="Cancel_Click"/>
-                <Button Content="Guardar"
+                <Button Content="Save"
                         Width="86"
                         Height="32"
                         Margin="0,14,0,0"
