@@ -44,20 +44,34 @@ public sealed class DesktopHostService
     private IntPtr _progman;
     private IntPtr _shellView;
     private IntPtr _desktopHost;
+    private uint _explorerProcessId;
 
     private readonly HashSet<IntPtr> _configuredTiles = [];
     private bool _reportedCurrentHost;
     private bool _reportedDiscoveryFailure;
+
+    public long Generation { get; private set; }
+
+    public void InvalidateHost(string reason)
+    {
+        if (_desktopHost != IntPtr.Zero || _shellView != IntPtr.Zero || _progman != IntPtr.Zero)
+        {
+            CrashLogService.LogMessage(
+                "Desktop host invalidated",
+                $"{reason}{Environment.NewLine}" +
+                $"Previous generation={Generation}; Explorer PID={_explorerProcessId}; " +
+                $"host={FormatHandle(_desktopHost)}.");
+        }
+
+        ResetHostState();
+    }
 
     public bool RefreshHost()
     {
         if (IsHostValid())
             return true;
 
-        _progman = IntPtr.Zero;
-        _shellView = IntPtr.Zero;
-        _desktopHost = IntPtr.Zero;
-        _reportedCurrentHost = false;
+        ResetHostState();
 
         var discovered = DiscoverDesktopHost();
         if (!discovered && !_reportedDiscoveryFailure)
@@ -284,10 +298,24 @@ public sealed class DesktopHostService
             : immediatelyAboveDesktop;
     }
 
+    private void ResetHostState()
+    {
+        _progman = IntPtr.Zero;
+        _shellView = IntPtr.Zero;
+        _desktopHost = IntPtr.Zero;
+        _explorerProcessId = 0;
+        _reportedCurrentHost = false;
+        _configuredTiles.Clear();
+    }
+
     private bool DiscoverDesktopHost()
     {
         _progman = FindWindow("Progman", null);
         if (_progman == IntPtr.Zero)
+            return false;
+
+        _ = GetWindowThreadProcessId(_progman, out _explorerProcessId);
+        if (_explorerProcessId == 0)
             return false;
 
         _ = SendMessageTimeout(
@@ -342,6 +370,7 @@ public sealed class DesktopHostService
         if (!IsHostValid())
             return false;
 
+        Generation++;
         _reportedDiscoveryFailure = false;
 
         if (!_reportedCurrentHost)
@@ -349,6 +378,7 @@ public sealed class DesktopHostService
             _reportedCurrentHost = true;
             CrashLogService.LogMessage(
                 "Desktop host discovered",
+                $"Generation={Generation}; Explorer PID={_explorerProcessId}{Environment.NewLine}" +
                 $"Progman={DescribeWindow(_progman)}{Environment.NewLine}" +
                 $"SHELLDLL_DefView={DescribeWindow(_shellView)}{Environment.NewLine}" +
                 $"Desktop host={DescribeWindow(_desktopHost)}");
@@ -361,11 +391,23 @@ public sealed class DesktopHostService
     {
         if (_desktopHost == IntPtr.Zero ||
             _shellView == IntPtr.Zero ||
+            _progman == IntPtr.Zero ||
+            _explorerProcessId == 0 ||
             !IsWindow(_desktopHost) ||
-            !IsWindow(_shellView))
+            !IsWindow(_shellView) ||
+            !IsWindow(_progman))
         {
             return false;
         }
+
+        // Explorer HWND values can eventually be reused. Validate both the
+        // canonical Progman handle and its process identity, not only IsWindow.
+        if (FindWindow("Progman", null) != _progman)
+            return false;
+
+        _ = GetWindowThreadProcessId(_progman, out var currentExplorerProcessId);
+        if (currentExplorerProcessId != _explorerProcessId)
+            return false;
 
         return GetParent(_shellView) == _desktopHost;
     }
@@ -527,6 +569,11 @@ public sealed class DesktopHostService
         IntPtr.Size == 8
             ? SetWindowLongPtr64(hWnd, nIndex, value)
             : new IntPtr(SetWindowLong32(hWnd, nIndex, value.ToInt32()));
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(
+        IntPtr hWnd,
+        out uint lpdwProcessId);
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr SendMessageTimeout(

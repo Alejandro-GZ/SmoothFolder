@@ -26,6 +26,7 @@ public partial class FolderTileWindow : Window
     private Point _dragStartCursor;
     private Point _dragStartFolder;
     private bool _isDragging;
+    private bool _desktopRecoveryMode;
     private FolderPopupWindow? _popup;
 
     public FolderTileWindow(
@@ -80,6 +81,15 @@ public partial class FolderTileWindow : Window
     public bool EnsureDesktopAttachment() =>
         _desktopHost.EnsureAttached(this, _folder.X, _folder.Y);
 
+    public void SetDesktopRecoveryMode(bool recovering)
+    {
+        _desktopRecoveryMode = recovering;
+        IsHitTestVisible = !recovering;
+
+        if (IsLoaded)
+            Opacity = recovering ? 0 : 1;
+    }
+
     private void OnInitialContentRendered(object? sender, EventArgs e)
     {
         // This is intentionally a one-shot startup path. Window.Show() can
@@ -100,10 +110,10 @@ public partial class FolderTileWindow : Window
                     $"Folder '{_folder.Name}': attached={attached}; " +
                     $"position=({_folder.X:0.##}, {_folder.Y:0.##}).");
 
-                // Even if Explorer hosting is unavailable, keep the fallback
-                // tile visible. ShowActivated=False + WS_EX_NOACTIVATE still
-                // prevents it from stealing foreground activation.
-                Opacity = 1;
+                // If an Explorer recovery started while this HWND was being
+                // created, keep it hidden until recovery completes.
+                Opacity = _desktopRecoveryMode ? 0 : 1;
+                IsHitTestVisible = !_desktopRecoveryMode;
             }));
     }
 

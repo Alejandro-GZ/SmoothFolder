@@ -138,8 +138,14 @@ host's client area.
 
 This integration relies on undocumented Explorer window classes and is therefore
 treated as a best-effort compatibility layer rather than a public Windows API.
-SmoothFolder periodically rediscovers the shell host and reattaches/recreates
-tiles after Explorer rebuilds its desktop hierarchy.
+
+Explorer recovery is event-driven: SmoothFolder listens for the shell's
+`TaskbarCreated` broadcast, invalidates the old desktop hierarchy, waits for the
+replacement shell to become ready with bounded backoff, and then reanchors the
+existing tiles. A slower periodic health check remains as a safety net for shell
+changes that do not emit the expected broadcast. Tiles are temporarily hidden
+during the short recovery window so they cannot float above normal applications
+while Explorer is rebuilding its desktop.
 
 ## Data and privacy
 
@@ -187,8 +193,8 @@ The workflow:
 - Desktop hosting uses undocumented Explorer internals (`Progman`, `WorkerW`
   and `SHELLDLL_DefView`) and may need compatibility adjustments on future
   Windows builds or with third-party desktop replacements.
-- Explorer-restart recovery currently uses lightweight periodic rediscovery
-  rather than a dedicated shell restart notification.
+- Desktop hosting still relies on Explorer implementation details, so future
+  Windows builds may require additional host-discovery compatibility rules.
 - Items cannot yet be reordered by dragging them within an open folder.
 - Large folders currently scroll rather than using iOS-style pages.
 - Multi-monitor popup constraints currently rely on the primary work area.
@@ -199,7 +205,7 @@ The workflow:
 
 Near-term priorities:
 
-1. Harden Explorer/desktop-host recovery and compatibility.
+1. Harden Explorer/desktop-host compatibility across Windows builds.
 2. Multi-monitor-aware positioning.
 3. Drag-and-drop item reordering.
 4. iOS-style folder pages and page indicators.
