@@ -1,0 +1,97 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Publish ${{ matrix.runtime }}
+    runs-on: windows-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime:
+          - win-x64
+          - win-arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore SmoothFolder.csproj
+
+      - name: Publish self-contained single-file app
+        shell: pwsh
+        run: |
+          $runtime = "${{ matrix.runtime }}"
+          $output = "dist\$runtime"
+
+          dotnet publish SmoothFolder.csproj `
+            -c Release `
+            -r $runtime `
+            --self-contained true `
+            --no-restore `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:DebugType=None `
+            -p:DebugSymbols=false `
+            -o $output
+
+          Compress-Archive `
+            -Path "$output\*" `
+            -DestinationPath "SmoothFolder-${{ github.ref_name }}-$runtime.zip"
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SmoothFolder-${{ matrix.runtime }}
+          path: SmoothFolder-${{ github.ref_name }}-${{ matrix.runtime }}.zip
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    needs: publish
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download published artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create checksums
+        shell: bash
+        run: |
+          cd dist
+          sha256sum *.zip > SHA256SUMS.txt
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME}"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/*.zip dist/SHA256SUMS.txt --clobber
+          else
+            gh release create "$tag" \
+              dist/*.zip \
+              dist/SHA256SUMS.txt \
+              --title "SmoothFolder $tag" \
+              --generate-notes
+          fi
