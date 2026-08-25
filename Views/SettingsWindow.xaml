@@ -276,8 +276,8 @@
 
                             <Slider x:Name="SaturationSlider"
                                     Style="{StaticResource SettingsSliderStyle}"
-                                    Minimum="0.50"
-                                    Maximum="1.40"
+                                    Minimum="0"
+                                    Maximum="1"
                                     TickFrequency="0.05"
                                     ValueChanged="AppearanceSlider_ValueChanged"/>
                         </StackPanel>

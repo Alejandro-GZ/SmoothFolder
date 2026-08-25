@@ -17,8 +17,8 @@ public sealed class SettingsService
     public const double MinTintStrength = 0.0;
     public const double MaxTintStrength = 0.70;
 
-    public const double MinSaturation = 0.50;
-    public const double MaxSaturation = 1.40;
+    public const double MinSaturation = 0.0;
+    public const double MaxSaturation = 1.0;
 
     private readonly string _root =
         Path.Combine(

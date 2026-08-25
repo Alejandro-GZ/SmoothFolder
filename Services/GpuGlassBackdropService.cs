@@ -30,15 +30,19 @@ public sealed class GpuGlassBackdropService : IDisposable
 
     // Give the blur some room outside the visible card so the kernel can sample
     // neighboring pixels instead of collapsing abruptly at the edge.
-    private const double BlurOverscanDip = 20.0;
+    // Direct2D Gaussian blur samples roughly three standard deviations around
+    // each output pixel. Reserve enough backdrop outside the visible card for
+    // the Settings slider's full 0..20 range.
+    private const double BlurOverscanDip = 64.0;
 
-    // A direct Gaussian blur is more reliable with HostBackdropBrush than
-    // attempting to emulate a reduced render target through coordinate
-    // transforms. The broader radius suppresses fine wallpaper detail without
-    // introducing sampling artifacts.
-    private const float BlurAmount = 3.0f;
+    private const float DefaultBlurAmount = 3.0f;
+    private const float DefaultSaturation = 1.0f;
+
     private const string BlurPropertyPath =
         "Blur.BlurAmount";
+
+    private const string SaturationPropertyPath =
+        "Saturation.Saturation";
 
     private const int WsPopup = unchecked((int)0x80000000);
 
@@ -166,11 +170,11 @@ public sealed class GpuGlassBackdropService : IDisposable
             {
                 CrashLogService.LogMessage(
                     "GPU glass backdrop enabled",
-                    $"Windows.UI.Composition raw BackdropBrush + native D2D Gaussian blur is active. " +
-                    $"{BlurPropertyPath}={BlurAmount:0.#}. " +
-                    "HostBackdropBrush is not used, so no compositor-managed pre-blur masks the custom value. " +
-                    "The blur amount is set explicitly on CompositionEffectBrush.Properties. " +
-                    "No external graphics runtime, screen capture, or CPU blur loop is used.");
+                    "Windows.UI.Composition raw BackdropBrush + native Direct2D " +
+                    "Gaussian blur and saturation effects are active. " +
+                    "Blur and saturation are runtime-tunable through " +
+                    "CompositionEffectBrush.Properties. No external graphics runtime, " +
+                    "screen capture, or CPU blur loop is used.");
             }
 
             return service;
@@ -181,6 +185,37 @@ public sealed class GpuGlassBackdropService : IDisposable
                 ex.ToString());
             return null;
         }
+    }
+
+    public void UpdateMaterial(
+        double blurAmount,
+        double saturation)
+    {
+        if (_disposed ||
+            _effectBrush is null)
+        {
+            return;
+        }
+
+        var normalizedBlur =
+            (float)Math.Clamp(
+                blurAmount,
+                SettingsService.MinBlurAmount,
+                SettingsService.MaxBlurAmount);
+
+        var normalizedSaturation =
+            (float)Math.Clamp(
+                saturation,
+                SettingsService.MinSaturation,
+                SettingsService.MaxSaturation);
+
+        _effectBrush.Properties.InsertScalar(
+            BlurPropertyPath,
+            normalizedBlur);
+
+        _effectBrush.Properties.InsertScalar(
+            SaturationPropertyPath,
+            normalizedSaturation);
     }
 
     public void Show()
@@ -407,28 +442,34 @@ public sealed class GpuGlassBackdropService : IDisposable
             new GaussianBlurEffectDescriptor
             {
                 Name = "Blur",
-                BlurAmount = BlurAmount,
+                BlurAmount = DefaultBlurAmount,
                 Source = source
             };
 
-        _initializationStage = "creating Gaussian blur effect factory";
+        var saturation =
+            new SaturationEffectDescriptor
+            {
+                Name = "Saturation",
+                Saturation = DefaultSaturation,
+                Source = blur
+            };
+
+        _initializationStage = "creating glass effect factory";
         var effectFactory =
             _compositor.CreateEffectFactory(
-                blur,
+                saturation,
                 new[]
                 {
-                    BlurPropertyPath
+                    BlurPropertyPath,
+                    SaturationPropertyPath
                 });
 
         _effectBrush =
             effectFactory.CreateBrush();
 
-        // Expose the Direct2D standard deviation as a Composition property and
-        // set it explicitly on this brush instance. This keeps the material
-        // tunable without rebuilding the effect graph.
-        _effectBrush.Properties.InsertScalar(
-            BlurPropertyPath,
-            BlurAmount);
+        UpdateMaterial(
+            DefaultBlurAmount,
+            DefaultSaturation);
 
         _initializationStage = "creating raw BackdropBrush";
 

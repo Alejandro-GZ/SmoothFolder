@@ -40,7 +40,9 @@ public partial class App : System.Windows.Application
         _settings =
             new SettingsService();
 
-        _controller = new DesktopFolderController();
+        _controller =
+            new DesktopFolderController(
+                _settings);
         _controller.Start();
 
         _trayIcon =

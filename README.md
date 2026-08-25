@@ -199,8 +199,10 @@ from desktop folder data at:
 The first Settings block provides persisted Appearance values for **blur
 strength**, **tint strength**, and **saturation**, plus the existing **Start
 with Windows** behavior toggle. Appearance changes raise a shared
-`SettingsChanged` event so the glass renderer can consume them without coupling
-the Settings UI to individual windows.
+`SettingsChanged` event and are applied live to open folder popups: blur and
+saturation update the Direct2D composition effect graph while tint strength
+updates the WPF glass tint layer. New popups immediately use the persisted
+values.
 
 ## Start with Windows
 

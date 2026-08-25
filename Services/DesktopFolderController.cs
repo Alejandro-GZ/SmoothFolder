@@ -21,6 +21,7 @@ public sealed class DesktopFolderController
         TimeSpan.FromSeconds(8)
     ];
 
+    private readonly SettingsService _settings;
     private readonly ConfigService _configService = new();
     private readonly IconService _iconService = new();
     private readonly LauncherService _launcher = new();
@@ -39,8 +40,12 @@ public sealed class DesktopFolderController
     private string _monitorTopologyFingerprint = string.Empty;
     private bool _stopped;
 
-    public DesktopFolderController()
+    public DesktopFolderController(
+        SettingsService settings)
     {
+        _settings =
+            settings;
+
         _shellLifecycle = new ShellLifecycleService();
         _shellLifecycle.ExplorerRestarted += OnExplorerRestarted;
         _shellLifecycle.DisplayConfigurationChanged += OnDisplayConfigurationChanged;
@@ -118,6 +123,7 @@ public sealed class DesktopFolderController
             _launcher,
             importer,
             _desktopHost,
+            _settings,
             save: Save,
             newFolder: CreateFolder,
             deleteFolder: DeleteFolder,

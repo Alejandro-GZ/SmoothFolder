@@ -25,6 +25,7 @@ public partial class FolderPopupWindow : Window
     private readonly IconService _icons;
     private readonly LauncherService _launcher;
     private readonly ShortcutImportService _importer;
+    private readonly SettingsService _settings;
     private readonly Action _save;
     private readonly Action _refreshTile;
     private readonly System.Windows.Threading.DispatcherTimer _dragPageTimer;
@@ -48,6 +49,7 @@ public partial class FolderPopupWindow : Window
         IconService icons,
         LauncherService launcher,
         ShortcutImportService importer,
+        SettingsService settings,
         Action save,
         Action refreshTile)
     {
@@ -57,6 +59,7 @@ public partial class FolderPopupWindow : Window
         _icons = icons;
         _launcher = launcher;
         _importer = importer;
+        _settings = settings;
         _save = save;
         _refreshTile = refreshTile;
 
@@ -69,11 +72,17 @@ public partial class FolderPopupWindow : Window
         TitleText.Text = folder.Name;
         ApplyGlassAppearance();
 
+        _settings.SettingsChanged +=
+            OnSettingsChanged;
+
         Loaded += (_, _) => RefreshItems();
 
         Closing += OnClosing;
         Closed += (_, _) =>
         {
+            _settings.SettingsChanged -=
+                OnSettingsChanged;
+
             _glassBackdrop?.Dispose();
             _glassBackdrop = null;
         };
@@ -90,7 +99,7 @@ public partial class FolderPopupWindow : Window
                     PopupCard,
                     30);
 
-            ApplyGlassAppearance();
+            ApplyMaterialSettings();
         };
 
         PreviewKeyDown += OnPreviewKeyDown;
@@ -1129,16 +1138,56 @@ public partial class FolderPopupWindow : Window
         }
     }
 
+    private void OnSettingsChanged(
+        object? sender,
+        EventArgs e)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            _ =
+                Dispatcher.BeginInvoke(
+                    new Action(
+                        ApplyMaterialSettings));
+
+            return;
+        }
+
+        ApplyMaterialSettings();
+    }
+
+    private void ApplyMaterialSettings()
+    {
+        var appearance =
+            _settings.Current.Appearance;
+
+        _glassBackdrop?.UpdateMaterial(
+            appearance.BlurAmount,
+            appearance.Saturation);
+
+        ApplyGlassAppearance();
+    }
+
     private void ApplyGlassAppearance()
     {
+        var tintStrength =
+            _settings.Current.Appearance.TintStrength;
+
+        // Preserve the old non-GPU fallback density at the default 28% setting
+        // while still making the global tint slider meaningful in both paths.
+        var opacityScale =
+            _glassBackdrop?.IsActive == true
+                ? tintStrength
+                : Math.Clamp(
+                    tintStrength *
+                    (0.78 / 0.28),
+                    0.0,
+                    1.0);
+
         TintLayer.Background =
             GlassAppearanceService.CreateTintBrush(
                 _folder.GlassTint,
                 _folder.GlassOpacity,
-                opacityScale:
-                    _glassBackdrop?.IsActive == true
-                        ? 0.28
-                        : 0.78);
+                opacityScale);
     }
 
     private void AnimateOpen()

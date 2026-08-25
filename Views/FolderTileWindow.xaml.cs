@@ -18,6 +18,7 @@ public partial class FolderTileWindow : Window
     private readonly LauncherService _launcher;
     private readonly ShortcutImportService _importer;
     private readonly DesktopHostService _desktopHost;
+    private readonly SettingsService _settings;
     private readonly Action _save;
     private readonly Action<Point> _newFolder;
     private readonly Action<FolderConfig, FolderTileWindow> _deleteFolder;
@@ -35,6 +36,7 @@ public partial class FolderTileWindow : Window
         LauncherService launcher,
         ShortcutImportService importer,
         DesktopHostService desktopHost,
+        SettingsService settings,
         Action save,
         Action<Point> newFolder,
         Action<FolderConfig, FolderTileWindow> deleteFolder,
@@ -47,6 +49,7 @@ public partial class FolderTileWindow : Window
         _launcher = launcher;
         _importer = importer;
         _desktopHost = desktopHost;
+        _settings = settings;
         _save = save;
         _newFolder = newFolder;
         _deleteFolder = deleteFolder;
@@ -277,6 +280,7 @@ public partial class FolderTileWindow : Window
                 _icons,
                 _launcher,
                 _importer,
+                _settings,
                 _save,
                 Refresh);
 
