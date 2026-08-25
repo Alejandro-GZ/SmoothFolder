@@ -59,6 +59,7 @@ public sealed class GpuGlassBackdropService : IDisposable
     private const int SwHide = 0;
     private const int SwShowNoActivate = 4;
 
+    private const uint SwpNoZOrder = 0x0004;
     private const uint SwpNoActivate = 0x0010;
     private const uint SwpNoOwnerZOrder = 0x0200;
     private const uint SwpShowWindow = 0x0040;
@@ -285,6 +286,49 @@ public sealed class GpuGlassBackdropService : IDisposable
         _ = _owner.Dispatcher.BeginInvoke(
             System.Windows.Threading.DispatcherPriority.Render,
             new Action(SynchronizeCore));
+    }
+
+    public void SynchronizeImmediately()
+    {
+        if (_disposed)
+            return;
+
+        if (!_owner.Dispatcher.CheckAccess())
+        {
+            Synchronize();
+            return;
+        }
+
+        SynchronizeCore();
+    }
+
+    public void SynchronizePositionImmediately()
+    {
+        if (_disposed)
+            return;
+
+        if (!_owner.Dispatcher.CheckAccess())
+        {
+            Synchronize();
+            return;
+        }
+
+        var requestedVisible =
+            _requestedVisible;
+
+        _requestedVisible =
+            false;
+
+        try
+        {
+            SynchronizeCore(
+                preserveZOrder: true);
+        }
+        finally
+        {
+            _requestedVisible =
+                requestedVisible;
+        }
     }
 
     public void Dispose()
@@ -523,7 +567,11 @@ public sealed class GpuGlassBackdropService : IDisposable
             controller;
     }
 
-    private void SynchronizeCore()
+    private void SynchronizeCore() =>
+        SynchronizeCore(
+            preserveZOrder: false);
+
+    private void SynchronizeCore(bool preserveZOrder)
     {
         if (_disposed ||
             _hwnd == IntPtr.Zero ||
@@ -655,20 +703,39 @@ public sealed class GpuGlassBackdropService : IDisposable
             if (ownerHwnd == IntPtr.Zero)
                 return;
 
-            // Keep the helper directly below the WPF popup. It has no native
-            // owner relation and cannot activate or receive pointer input.
+            // Full synchronization repairs the helper directly below its WPF
+            // surface. Position-only synchronization is used while dragging:
+            // the relationship is already correct, so do not touch Z-order or
+            // repeatedly ask DWM to reinsert the helper.
+            var positionFlags =
+                SwpNoActivate |
+                SwpNoOwnerZOrder;
+
+            var insertAfter =
+                ownerHwnd;
+
+            if (preserveZOrder)
+            {
+                positionFlags |=
+                    SwpNoZOrder;
+
+                insertAfter =
+                    IntPtr.Zero;
+            }
+            else if (_requestedVisible)
+            {
+                positionFlags |=
+                    SwpShowWindow;
+            }
+
             _ = SetWindowPos(
                 _hwnd,
-                ownerHwnd,
+                insertAfter,
                 left,
                 top,
                 width,
                 height,
-                SwpNoActivate |
-                SwpNoOwnerZOrder |
-                (_requestedVisible
-                    ? SwpShowWindow
-                    : 0));
+                positionFlags);
 
             _visual.Size =
                 new Vector2(

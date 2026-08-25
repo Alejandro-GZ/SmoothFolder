@@ -29,6 +29,7 @@ public partial class FolderTileWindow : Window
     private bool _isDragging;
     private bool _desktopRecoveryMode;
     private FolderPopupWindow? _popup;
+    private GpuGlassBackdropService? _tileGlassBackdrop;
 
     public FolderTileWindow(
         FolderConfig folder,
@@ -55,6 +56,9 @@ public partial class FolderTileWindow : Window
         _deleteFolder = deleteFolder;
         _exitApp = exitApp;
 
+        _settings.SettingsChanged +=
+            OnSettingsChanged;
+
         Left = folder.X;
         Top = folder.Y;
 
@@ -64,6 +68,23 @@ public partial class FolderTileWindow : Window
         {
             WindowEffects.ConfigureDesktopTile(this);
             WindowEffects.InstallDesktopTileActivationGuard(this);
+
+            _tileGlassBackdrop =
+                GpuGlassBackdropService.TryCreate(
+                    this,
+                    FolderCard,
+                    25);
+
+            ApplyTileMaterial();
+        };
+
+        Closed += (_, _) =>
+        {
+            _settings.SettingsChanged -=
+                OnSettingsChanged;
+
+            _tileGlassBackdrop?.Dispose();
+            _tileGlassBackdrop = null;
         };
 
         ContentRendered += OnInitialContentRendered;
@@ -89,6 +110,11 @@ public partial class FolderTileWindow : Window
         if (!attached)
             return false;
 
+        // DesktopHostService can move the tile within the desktop Z-order.
+        // Immediately put the transparent composition helper directly below
+        // the tile again so wallpaper/icons are sampled behind both windows.
+        _tileGlassBackdrop?.SynchronizeImmediately();
+
         var bounds = DesktopHostService.GetScreenBoundsPixels(this);
 
         if (DesktopPositionService.Capture(_folder, bounds))
@@ -112,8 +138,20 @@ public partial class FolderTileWindow : Window
         _desktopRecoveryMode = recovering;
         IsHitTestVisible = !recovering;
 
-        if (IsLoaded)
-            Opacity = recovering ? 0 : 1;
+        if (!IsLoaded)
+            return;
+
+        Opacity = recovering ? 0 : 1;
+
+        if (recovering)
+        {
+            _tileGlassBackdrop?.Hide();
+        }
+        else
+        {
+            _tileGlassBackdrop?.SynchronizeImmediately();
+            _tileGlassBackdrop?.Show();
+        }
     }
 
     private void OnInitialContentRendered(object? sender, EventArgs e)
@@ -137,19 +175,23 @@ public partial class FolderTileWindow : Window
                     $"position=({_folder.X:0.##}, {_folder.Y:0.##}).");
 
                 // If an Explorer recovery started while this HWND was being
-                // created, keep it hidden until recovery completes.
+                // created, keep both halves of the glass tile hidden until
+                // recovery completes.
                 Opacity = _desktopRecoveryMode ? 0 : 1;
                 IsHitTestVisible = !_desktopRecoveryMode;
+
+                if (!_desktopRecoveryMode)
+                {
+                    _tileGlassBackdrop?.SynchronizeImmediately();
+                    _tileGlassBackdrop?.Show();
+                }
             }));
     }
 
     public void Refresh()
     {
         FolderName.Text = _folder.Name;
-        FolderCard.Background = GlassAppearanceService.CreateTintBrush(
-            _folder.GlassTint,
-            _folder.GlassOpacity,
-            opacityScale: 0.72);
+        ApplyTileMaterial();
         PreviewGrid.Children.Clear();
 
         foreach (var item in _folder.Items.Take(9))
@@ -182,6 +224,51 @@ public partial class FolderTileWindow : Window
                 VerticalAlignment = VerticalAlignment.Center
             });
         }
+    }
+
+    private void OnSettingsChanged(
+        object? sender,
+        EventArgs e)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            _ =
+                Dispatcher.BeginInvoke(
+                    new Action(
+                        ApplyTileMaterial));
+
+            return;
+        }
+
+        ApplyTileMaterial();
+    }
+
+    private void ApplyTileMaterial()
+    {
+        var appearance =
+            _settings.Current.Appearance;
+
+        _tileGlassBackdrop?.UpdateMaterial(
+            appearance.BlurAmount,
+            appearance.Saturation);
+
+        // With GPU glass active, use exactly the same global tint multiplier as
+        // the popup. If composition is unavailable, preserve the old compact
+        // tile density at the default 28% setting.
+        var opacityScale =
+            _tileGlassBackdrop?.IsActive == true
+                ? appearance.TintStrength
+                : Math.Clamp(
+                    appearance.TintStrength *
+                    (0.72 / 0.28),
+                    0.0,
+                    1.0);
+
+        FolderCard.Background =
+            GlassAppearanceService.CreateTintBrush(
+                _folder.GlassTint,
+                _folder.GlassOpacity,
+                opacityScale);
     }
 
     private void OnMouseDown(object sender, MouseButtonEventArgs e)
@@ -220,20 +307,36 @@ public partial class FolderTileWindow : Window
         var thresholdX = MonitorService.DipToPixels(5, dragMonitor.DpiX);
         var thresholdY = MonitorService.DipToPixels(5, dragMonitor.DpiY);
 
-        if (!_isDragging &&
-            Math.Abs(deltaX) < thresholdX &&
-            Math.Abs(deltaY) < thresholdY)
+        if (!_isDragging)
         {
-            return;
-        }
+            if (Math.Abs(deltaX) < thresholdX &&
+                Math.Abs(deltaY) < thresholdY)
+            {
+                return;
+            }
 
-        _isDragging = true;
+            _isDragging = true;
+
+            // Lift the dragged tile once above all other SmoothFolder desktop
+            // tiles. Normal application windows remain above the desktop band.
+            if (_desktopHost.BeginTileDrag(this))
+            {
+                _tileGlassBackdrop?.SynchronizeImmediately();
+            }
+        }
 
         var target = new ScreenPixelPoint(
             _dragStartFolder.X + deltaX,
             _dragStartFolder.Y + deltaY);
 
-        _ = _desktopHost.MoveToScreenPixels(this, target);
+        // Tile and helper keep their established Z-order for the rest of the
+        // drag. Only their coordinates change, avoiding backdrop reinsertions.
+        if (_desktopHost.MoveToScreenPixelsPreservingZOrder(
+                this,
+                target))
+        {
+            _tileGlassBackdrop?.SynchronizePositionImmediately();
+        }
     }
 
     private void OnMouseUp(object sender, MouseButtonEventArgs e)
@@ -259,6 +362,8 @@ public partial class FolderTileWindow : Window
             _ = DesktopPositionService.Capture(
                 _folder,
                 bounds);
+
+            _tileGlassBackdrop?.SynchronizePositionImmediately();
         }
 
         _save();

@@ -199,10 +199,10 @@ from desktop folder data at:
 The first Settings block provides persisted Appearance values for **blur
 strength**, **tint strength**, and **saturation**, plus the existing **Start
 with Windows** behavior toggle. Appearance changes raise a shared
-`SettingsChanged` event and are applied live to open folder popups: blur and
-saturation update the Direct2D composition effect graph while tint strength
-updates the WPF glass tint layer. New popups immediately use the persisted
-values.
+`SettingsChanged` event and are applied live to open folder popups and compact
+desktop tiles: blur and saturation update the shared Direct2D composition
+effect graph while tint strength updates each WPF glass tint layer. New popups
+and all persistent desktop tiles immediately use the persisted values.
 
 ## Start with Windows
 
@@ -229,8 +229,15 @@ removed. This keeps folder tiles and popups out of normal taskbar / Alt+Tab
 surfaces and also gives shell replacements a standard signal that these are
 auxiliary desktop UI windows.
 
-Compact folder tiles are anchored to Explorer's desktop hierarchy. SmoothFolder
-discovers the `WorkerW` / `Progman` host that owns `SHELLDLL_DefView`, then keeps
+Compact folder tiles are anchored to Explorer's desktop hierarchy. Each tile
+also owns a transparent Windows.UI.Composition helper directly below its WPF
+card in desktop Z-order, so the compact 3x3 preview uses the same raw
+`BackdropBrush` + Direct2D blur/saturation material as folder popups. The helper
+is re-synchronized after Explorer recovery, display changes and native tile
+dragging.
+
+SmoothFolder discovers the `WorkerW` / `Progman` host that owns
+`SHELLDLL_DefView`, then keeps
 each transparent WPF tile immediately above that desktop host in the top-level
 Z-order. Tiles are deliberately not native-owned by Explorer: native ownership
 can force an owned tile above unrelated application windows.
@@ -346,15 +353,17 @@ The workflow:
 
 ## Roadmap
 
-The Settings infrastructure is now in place; the next appearance step is to bind the persisted values live to popup and desktop-tile GPU materials.
+Popup and compact desktop tiles now share the live GPU glass material and the
+same persisted blur, saturation and tint controls.
 
 Near-term priorities:
 
-1. Extend Explorer compatibility profiles as new Windows layouts are observed.
-2. Refine touchpad/touch page gestures and cross-page reorder polish.
-3. Refine GPU glass material tuning (blur, saturation and tint) and evaluate
-   whether compact desktop tiles should share the composition material.
-4. Steam/Epic library import and higher-quality artwork fallbacks.
+1. Replace tile and popup-item context menus with the reusable iOS-like menu UI.
+2. Replace internal app reorder with an iOS-like lifted drag visual and live
+   slot displacement.
+3. Refine touchpad/touch page gestures and cross-page reorder behavior.
+4. Extend Explorer compatibility profiles as new Windows layouts are observed.
+5. Steam/Epic library import and higher-quality artwork fallbacks.
 
 ## Project structure
 

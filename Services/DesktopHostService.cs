@@ -27,6 +27,7 @@ public sealed class DesktopHostService
 
     private const uint SwpNoSize = 0x0001;
     private const uint SwpNoMove = 0x0002;
+    private const uint SwpNoZOrder = 0x0004;
     private const uint SwpNoActivate = 0x0010;
     private const uint SwpFrameChanged = 0x0020;
     private const uint SwpShowWindow = 0x0040;
@@ -167,6 +168,65 @@ public sealed class DesktopHostService
             SwpNoActivate |
             SwpNoOwnerZOrder |
             SwpShowWindow);
+    }
+
+    public bool BeginTileDrag(Window window)
+    {
+        if (!RefreshHost())
+            return false;
+
+        var hwnd = new WindowInteropHelper(window).Handle;
+        if (hwnd == IntPtr.Zero || !IsWindow(hwnd))
+            return false;
+
+        if (!_configuredTiles.Contains(hwnd) &&
+            !PrepareDesktopTile(window, hwnd))
+        {
+            return false;
+        }
+
+        // Promote only once: above every SmoothFolder tile/backdrop helper,
+        // but still below the first normal application/shell window.
+        return SetWindowPos(
+            hwnd,
+            GetDesktopDragInsertAfter(hwnd),
+            0,
+            0,
+            0,
+            0,
+            SwpNoSize |
+            SwpNoMove |
+            SwpNoActivate |
+            SwpNoOwnerZOrder |
+            SwpShowWindow);
+    }
+
+    public bool MoveToScreenPixelsPreservingZOrder(
+        Window window,
+        ScreenPixelPoint topLeft)
+    {
+        var hwnd = new WindowInteropHelper(window).Handle;
+        if (hwnd == IntPtr.Zero || !IsWindow(hwnd))
+            return false;
+
+        if (!GetWindowRect(hwnd, out var rect))
+            return false;
+
+        var width = Math.Max(1, rect.Right - rect.Left);
+        var height = Math.Max(1, rect.Bottom - rect.Top);
+
+        // Once dragging starts, changing only coordinates keeps DWM from
+        // rebuilding the transparent desktop-band Z-order on every mouse move.
+        return SetWindowPos(
+            hwnd,
+            IntPtr.Zero,
+            topLeft.X,
+            topLeft.Y,
+            width,
+            height,
+            SwpNoZOrder |
+            SwpNoActivate |
+            SwpNoOwnerZOrder);
     }
 
     public static bool IsWindowAlive(Window window)
@@ -346,6 +406,37 @@ public sealed class DesktopHostService
         return immediatelyAboveDesktop == IntPtr.Zero
             ? HwndTop
             : immediatelyAboveDesktop;
+    }
+
+    private IntPtr GetDesktopDragInsertAfter(IntPtr tileHwnd)
+    {
+        var candidate = GetWindow(
+            _desktopHost,
+            GetWindowCommand.Previous);
+
+        while (candidate != IntPtr.Zero)
+        {
+            var isSmoothFolderTile =
+                candidate == tileHwnd ||
+                _configuredTiles.Contains(candidate);
+
+            var isSmoothFolderBackdrop =
+                ClassEquals(
+                    candidate,
+                    "SmoothFolder.GpuGlassBackdrop");
+
+            if (!isSmoothFolderTile &&
+                !isSmoothFolderBackdrop)
+            {
+                return candidate;
+            }
+
+            candidate = GetWindow(
+                candidate,
+                GetWindowCommand.Previous);
+        }
+
+        return HwndTop;
     }
 
     private void ResetHostState()
