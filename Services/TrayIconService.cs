@@ -11,11 +11,21 @@ public sealed class TrayIconService : IDisposable
     private readonly Icon _icon;
     private readonly ToolStripMenuItem _startWithWindows;
 
-    public TrayIconService(Action exitApplication)
+    public TrayIconService(
+        Action openSettings,
+        Action exitApplication)
     {
         _icon = LoadApplicationIcon();
 
         var menu = new ContextMenuStrip();
+
+        var settings =
+            new ToolStripMenuItem("Settings...");
+
+        settings.Click +=
+            (_, _) =>
+                DispatchToWpf(
+                    openSettings);
 
         var openDataFolder = new ToolStripMenuItem("Open data folder");
         openDataFolder.Click += (_, _) => OpenDataFolder();
@@ -40,6 +50,8 @@ public sealed class TrayIconService : IDisposable
                 exitApplication);
         };
 
+        menu.Items.Add(settings);
+        menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(openDataFolder);
         menu.Items.Add(_startWithWindows);
         menu.Items.Add(new ToolStripSeparator());
@@ -52,6 +64,11 @@ public sealed class TrayIconService : IDisposable
             ContextMenuStrip = menu,
             Visible = true
         };
+
+        _notifyIcon.DoubleClick +=
+            (_, _) =>
+                DispatchToWpf(
+                    openSettings);
     }
 
     public void Dispose()
@@ -60,6 +77,14 @@ public sealed class TrayIconService : IDisposable
         _notifyIcon.ContextMenuStrip?.Dispose();
         _notifyIcon.Dispose();
         _icon.Dispose();
+    }
+
+    private static void DispatchToWpf(
+        Action action)
+    {
+        _ =
+            System.Windows.Application.Current.Dispatcher.BeginInvoke(
+                action);
     }
 
     private void ToggleStartWithWindows()

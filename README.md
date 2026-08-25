@@ -37,8 +37,10 @@ Windows taskbar and Alt+Tab/task-switcher surfaces.
   - no normal Windows taskbar entry.
   - auxiliary windows are marked as tool windows and excluded from Alt+Tab.
   - compact desktop tiles use `WS_EX_NOACTIVATE` and are kept below normal app windows.
-  - system-tray icon with quick access to the data folder, a per-user
-    **Start with Windows** toggle, and Exit.
+  - system-tray icon with quick access to **Settings**, the data folder, a
+    per-user **Start with Windows** toggle, and Exit.
+  - persistent user-level Settings foundation stored separately from folder
+    data, with Appearance controls for blur, tint strength and saturation.
   - single-instance process protection.
 - No game or application installation is modified by SmoothFolder.
 
@@ -184,6 +186,22 @@ initialization fails or High Contrast mode is active, SmoothFolder falls back
 to the existing translucent WPF renderer.
 
 
+## Settings
+
+SmoothFolder exposes a dedicated Settings window from the tray menu (or by
+double-clicking the tray icon). User-level preferences are stored separately
+from desktop folder data at:
+
+```text
+%LOCALAPPDATA%\SmoothFolder\settings.json
+```
+
+The first Settings block provides persisted Appearance values for **blur
+strength**, **tint strength**, and **saturation**, plus the existing **Start
+with Windows** behavior toggle. Appearance changes raise a shared
+`SettingsChanged` event so the glass renderer can consume them without coupling
+the Settings UI to individual windows.
+
 ## Start with Windows
 
 The tray menu includes a checkable **Start with Windows** item. SmoothFolder
@@ -325,6 +343,8 @@ The workflow:
 - There is no automatic Steam/Epic library importer yet.
 
 ## Roadmap
+
+The Settings infrastructure is now in place; the next appearance step is to bind the persisted values live to popup and desktop-tile GPU materials.
 
 Near-term priorities:
 
