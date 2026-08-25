@@ -472,78 +472,122 @@ public partial class FolderTileWindow : Window
 
     private void OpenContextMenu()
     {
-        var menu = new ContextMenu();
+        var menu =
+            IosContextMenuService.Create();
 
-        var open = new MenuItem { Header = "Open" };
-        open.Click += (_, _) => OpenFolder();
+        menu.Items.Add(
+            IosContextMenuService.Item(
+                "Open",
+                OpenFolder));
 
-        var rename = new MenuItem { Header = "Rename" };
-        rename.Click += (_, _) =>
-        {
-            var result = PromptDialog.Show("Folder name", _folder.Name);
-            if (!string.IsNullOrWhiteSpace(result))
-            {
-                _folder.Name = result.Trim();
-                _save();
-                Refresh();
-            }
-        };
-
-        var tint = new MenuItem { Header = "Glass tint..." };
-        tint.Click += (_, _) =>
-        {
-            var dialog = new GlassTintDialog(_folder)
-            {
-                Owner = this
-            };
-
-            if (dialog.ShowDialog() == true)
-            {
-                _folder.GlassTint = dialog.SelectedTint;
-                _folder.GlassOpacity = dialog.SelectedOpacity;
-                _save();
-                Refresh();
-
-                if (_popup is { IsVisible: true })
+        menu.Items.Add(
+            IosContextMenuService.Item(
+                "Rename",
+                () =>
                 {
-                    _popup.Close();
-                    _popup = null;
-                }
-            }
-        };
+                    var result =
+                        PromptDialog.Show(
+                            "Folder name",
+                            _folder.Name);
 
-        var add = new MenuItem { Header = "New folder" };
-        add.Click += (_, _) =>
-        {
-            var bounds = DesktopHostService.GetScreenBoundsPixels(this);
-            _newFolder(new Point(bounds.Left, bounds.Top));
-        };
+                    if (string.IsNullOrWhiteSpace(
+                            result))
+                    {
+                        return;
+                    }
 
-        var delete = new MenuItem { Header = "Delete folder" };
-        delete.Click += (_, _) =>
-        {
-            if (MessageBox.Show(
-                    $"Delete '{_folder.Name}'?\n\nThis does not uninstall or delete any game.",
-                    "Delete folder",
-                    MessageBoxButton.YesNo,
-                    MessageBoxImage.Question) == MessageBoxResult.Yes)
-            {
-                _deleteFolder(_folder, this);
-            }
-        };
+                    _folder.Name =
+                        result.Trim();
 
-        var exit = new MenuItem { Header = "Exit SmoothFolder" };
-        exit.Click += (_, _) => _exitApp();
+                    _save();
+                    Refresh();
+                }));
 
-        menu.Items.Add(open);
-        menu.Items.Add(rename);
-        menu.Items.Add(tint);
-        menu.Items.Add(add);
-        menu.Items.Add(new Separator());
-        menu.Items.Add(delete);
-        menu.Items.Add(new Separator());
-        menu.Items.Add(exit);
+        menu.Items.Add(
+            IosContextMenuService.Item(
+                "Glass tint...",
+                () =>
+                {
+                    var dialog =
+                        new GlassTintDialog(
+                            _folder)
+                        {
+                            Owner =
+                                this
+                        };
 
-        menu.IsOpen = true;
+                    if (dialog.ShowDialog() !=
+                        true)
+                    {
+                        return;
+                    }
+
+                    _folder.GlassTint =
+                        dialog.SelectedTint;
+
+                    _folder.GlassOpacity =
+                        dialog.SelectedOpacity;
+
+                    _save();
+                    Refresh();
+
+                    if (_popup is
+                        { IsVisible: true })
+                    {
+                        _popup.Close();
+                        _popup = null;
+                    }
+                }));
+
+        menu.Items.Add(
+            IosContextMenuService.Item(
+                "New folder",
+                () =>
+                {
+                    var bounds =
+                        DesktopHostService
+                            .GetScreenBoundsPixels(
+                                this);
+
+                    _newFolder(
+                        new Point(
+                            bounds.Left,
+                            bounds.Top));
+                }));
+
+        menu.Items.Add(
+            IosContextMenuService.Separator());
+
+        menu.Items.Add(
+            IosContextMenuService.Item(
+                "Delete folder",
+                () =>
+                {
+                    if (MessageBox.Show(
+                            $"Delete '{_folder.Name}'?\n\n" +
+                            "This does not uninstall or delete any game.",
+                            "Delete folder",
+                            MessageBoxButton.YesNo,
+                            MessageBoxImage.Question) ==
+                        MessageBoxResult.Yes)
+                    {
+                        _deleteFolder(
+                            _folder,
+                            this);
+                    }
+                },
+                destructive:
+                    true));
+
+        menu.Items.Add(
+            IosContextMenuService.Separator());
+
+        menu.Items.Add(
+            IosContextMenuService.Item(
+                "Exit SmoothFolder",
+                _exitApp));
+
+        menu.IsOpen =
+            true;
     }
 }

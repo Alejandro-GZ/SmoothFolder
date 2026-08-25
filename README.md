@@ -353,15 +353,17 @@ The workflow:
 
 ## Roadmap
 
-Popup and compact desktop tiles now share the live GPU glass material and the
-same persisted blur, saturation and tint controls.
+Popup and compact desktop tiles share the live GPU glass material. Tile and
+popup-item right-click actions now use one reusable iOS-inspired context-menu
+visual system with rounded chrome, subtle opening motion and destructive-action
+styling.
 
 Near-term priorities:
 
-1. Replace tile and popup-item context menus with the reusable iOS-like menu UI.
-2. Replace internal app reorder with an iOS-like lifted drag visual and live
+1. Replace internal app reorder with an iOS-like lifted drag visual and live
    slot displacement.
-3. Refine touchpad/touch page gestures and cross-page reorder behavior.
+2. Refine cross-page drag so the lifted app can flow naturally between pages.
+3. Add touchpad/touch page gestures with proportional movement and snapping.
 4. Extend Explorer compatibility profiles as new Windows layouts are observed.
 5. Steam/Epic library import and higher-quality artwork fallbacks.
 

@@ -1006,27 +1006,44 @@ public partial class FolderPopupWindow : Window
 
     private ContextMenu BuildItemContextMenu(AppItem item)
     {
-        var menu = new ContextMenu();
+        var menu =
+            IosContextMenuService.Create();
 
-        var rename = new MenuItem { Header = "Rename" };
-        rename.Click += (_, _) =>
-        {
-            var name = PromptDialog.Show("Display name", item.DisplayName);
-            if (!string.IsNullOrWhiteSpace(name))
-            {
-                item.DisplayName = name.Trim();
-                _save();
-                RefreshItems();
-                _refreshTile();
-            }
-        };
+        menu.Items.Add(
+            IosContextMenuService.Item(
+                "Rename",
+                () =>
+                {
+                    var name =
+                        PromptDialog.Show(
+                            "Display name",
+                            item.DisplayName);
 
-        var remove = new MenuItem { Header = "Remove app from folder" };
-        remove.Click += (_, _) => RemoveItem(item);
+                    if (string.IsNullOrWhiteSpace(
+                            name))
+                    {
+                        return;
+                    }
 
-        menu.Items.Add(rename);
-        menu.Items.Add(new Separator());
-        menu.Items.Add(remove);
+                    item.DisplayName =
+                        name.Trim();
+
+                    _save();
+                    RefreshItems();
+                    _refreshTile();
+                }));
+
+        menu.Items.Add(
+            IosContextMenuService.Separator());
+
+        menu.Items.Add(
+            IosContextMenuService.Item(
+                "Remove app from folder",
+                () =>
+                    RemoveItem(
+                        item),
+                destructive:
+                    true));
 
         return menu;
     }

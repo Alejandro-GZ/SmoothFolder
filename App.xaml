@@ -12,6 +12,131 @@
         <SolidColorBrush x:Key="GlassBrush" Color="#B31A202A"/>
         <SolidColorBrush x:Key="GlassBorderBrush" Color="#55FFFFFF"/>
 
+        <!-- Reusable iOS-inspired context menu chrome. WPF's native
+             ContextMenu popup keeps focus/outside-click behavior reliable,
+             while these templates replace the default Windows visuals. -->
+        <Style x:Key="IosContextMenuStyle"
+               TargetType="{x:Type ContextMenu}">
+            <Setter Property="Background"
+                    Value="Transparent"/>
+            <Setter Property="BorderThickness"
+                    Value="0"/>
+            <Setter Property="Padding"
+                    Value="0"/>
+            <Setter Property="HasDropShadow"
+                    Value="False"/>
+            <Setter Property="OverridesDefaultStyle"
+                    Value="True"/>
+            <Setter Property="SnapsToDevicePixels"
+                    Value="True"/>
+            <Setter Property="UseLayoutRounding"
+                    Value="True"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ContextMenu}">
+                        <Border MinWidth="204"
+                                Padding="6"
+                                CornerRadius="18"
+                                BorderBrush="#42FFFFFF"
+                                BorderThickness="1">
+                            <Border.Background>
+                                <LinearGradientBrush StartPoint="0,0"
+                                                     EndPoint="1,1">
+                                    <GradientStop Color="#F22C3038"
+                                                  Offset="0"/>
+                                    <GradientStop Color="#ED20242B"
+                                                  Offset="1"/>
+                                </LinearGradientBrush>
+                            </Border.Background>
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="26"
+                                                  ShadowDepth="8"
+                                                  Opacity="0.44"/>
+                            </Border.Effect>
+                            <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Cycle"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="IosContextMenuItemStyle"
+               TargetType="{x:Type MenuItem}">
+            <Setter Property="MinHeight"
+                    Value="42"/>
+            <Setter Property="Padding"
+                    Value="14,0"/>
+            <Setter Property="Foreground"
+                    Value="{DynamicResource TextPrimaryBrush}"/>
+            <Setter Property="FontFamily"
+                    Value="{DynamicResource UiFontFamily}"/>
+            <Setter Property="FontSize"
+                    Value="13.5"/>
+            <Setter Property="FontWeight"
+                    Value="Medium"/>
+            <Setter Property="Cursor"
+                    Value="Hand"/>
+            <Setter Property="Background"
+                    Value="Transparent"/>
+            <Setter Property="BorderThickness"
+                    Value="0"/>
+            <Setter Property="OverridesDefaultStyle"
+                    Value="True"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type MenuItem}">
+                        <Border x:Name="ItemChrome"
+                                MinHeight="{TemplateBinding MinHeight}"
+                                Padding="{TemplateBinding Padding}"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="12">
+                            <ContentPresenter ContentSource="Header"
+                                              RecognizesAccessKey="False"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted"
+                                     Value="True">
+                                <Setter TargetName="ItemChrome"
+                                        Property="Background"
+                                        Value="#26FFFFFF"/>
+                            </Trigger>
+                            <Trigger Property="Tag"
+                                     Value="Destructive">
+                                <Setter Property="Foreground"
+                                        Value="#FFFF453A"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled"
+                                     Value="False">
+                                <Setter Property="Opacity"
+                                        Value="0.42"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="IosContextMenuSeparatorStyle"
+               TargetType="{x:Type Separator}">
+            <Setter Property="Height"
+                    Value="9"/>
+            <Setter Property="Margin"
+                    Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Separator}">
+                        <Grid Height="9">
+                            <Border Height="1"
+                                    Margin="12,4,12,4"
+                                    VerticalAlignment="Center"
+                                    Background="#24FFFFFF"/>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style x:Key="GlassScrollBarThumbStyle" TargetType="{x:Type Thumb}">
             <Setter Property="Background" Value="#55FFFFFF"/>
             <Setter Property="MinHeight" Value="34"/>
