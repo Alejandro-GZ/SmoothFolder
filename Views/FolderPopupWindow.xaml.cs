@@ -3,6 +3,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
@@ -22,6 +23,12 @@ public partial class FolderPopupWindow : Window
     private const double PageAnimationDistance = 24;
     private const double DragPageEdgeWidth = 52;
 
+    private const int WmMouseHWheel = 0x020E;
+    private const double HorizontalWheelDipScale = 0.34;
+    private const double PageGestureEdgeResistance = 0.28;
+    private const double PageGestureMaxFraction = 0.34;
+    private const double PageGestureCommitFraction = 0.16;
+
     private readonly FolderConfig _folder;
     private readonly IconService _icons;
     private readonly LauncherService _launcher;
@@ -31,7 +38,9 @@ public partial class FolderPopupWindow : Window
     private readonly Action _refreshTile;
     private readonly System.Windows.Threading.DispatcherTimer _dragPageTimer;
     private readonly System.Windows.Threading.DispatcherTimer _liveDragPageTimer;
+    private readonly System.Windows.Threading.DispatcherTimer _horizontalPageGestureTimer;
 
+    private HwndSource? _pageGestureHwndSource;
     private GpuGlassBackdropService? _glassBackdrop;
     private bool _isClosing;
     private bool _allowClose;
@@ -48,6 +57,9 @@ public partial class FolderPopupWindow : Window
     private int _dragOriginalIndex = -1;
     private int _dragOriginalPage = -1;
     private int _pendingLiveDragPageDelta;
+    private double _pageGestureOffset;
+    private bool _pageGestureActive;
+    private bool _touchPageGestureActive;
     private bool _dragOrderChanged;
     private bool _endingInternalDrag;
     private Border? _dropIndicatorCard;
@@ -93,6 +105,18 @@ public partial class FolderPopupWindow : Window
             (_, _) =>
                 OnLiveDragPageTimerTick();
 
+        _horizontalPageGestureTimer =
+            new System.Windows.Threading.DispatcherTimer
+            {
+                Interval =
+                    TimeSpan.FromMilliseconds(
+                        95)
+            };
+
+        _horizontalPageGestureTimer.Tick +=
+            (_, _) =>
+                OnHorizontalPageGestureTimerTick();
+
         TitleText.Text = folder.Name;
         ApplyGlassAppearance();
 
@@ -106,6 +130,9 @@ public partial class FolderPopupWindow : Window
         {
             _settings.SettingsChanged -=
                 OnSettingsChanged;
+
+            _horizontalPageGestureTimer.Stop();
+            DetachPageGestureHwndHook();
 
             _glassBackdrop?.Dispose();
             _glassBackdrop = null;
@@ -124,6 +151,7 @@ public partial class FolderPopupWindow : Window
                     30);
 
             ApplyMaterialSettings();
+            AttachPageGestureHwndHook();
         };
 
         PreviewKeyDown += OnPreviewKeyDown;
@@ -131,6 +159,14 @@ public partial class FolderPopupWindow : Window
         MouseMove += OnInternalDragMouseMove;
         MouseLeftButtonUp += OnInternalDragMouseUp;
         LostMouseCapture += OnInternalDragLostMouseCapture;
+
+        ItemsViewport.IsManipulationEnabled = true;
+        ItemsViewport.ManipulationStarting +=
+            OnPageManipulationStarting;
+        ItemsViewport.ManipulationDelta +=
+            OnPageManipulationDelta;
+        ItemsViewport.ManipulationCompleted +=
+            OnPageManipulationCompleted;
 
         DragOver += OnPopupDragOver;
         DragLeave += OnPopupDragLeave;
@@ -490,6 +526,410 @@ public partial class FolderPopupWindow : Window
         e.Handled = true;
     }
 
+    private void AttachPageGestureHwndHook()
+    {
+        if (_pageGestureHwndSource is not null)
+            return;
+
+        var hwnd =
+            new WindowInteropHelper(
+                this).Handle;
+
+        if (hwnd == IntPtr.Zero ||
+            HwndSource.FromHwnd(hwnd) is not
+                HwndSource source)
+        {
+            return;
+        }
+
+        source.AddHook(
+            PageGestureWndProc);
+
+        _pageGestureHwndSource =
+            source;
+    }
+
+    private void DetachPageGestureHwndHook()
+    {
+        if (_pageGestureHwndSource is null)
+            return;
+
+        _pageGestureHwndSource.RemoveHook(
+            PageGestureWndProc);
+
+        _pageGestureHwndSource =
+            null;
+    }
+
+    private IntPtr PageGestureWndProc(
+        IntPtr hwnd,
+        int message,
+        IntPtr wParam,
+        IntPtr lParam,
+        ref bool handled)
+    {
+        if (message != WmMouseHWheel ||
+            _internalDragInProgress ||
+            _endingInternalDrag ||
+            PageCount <= 1)
+        {
+            return IntPtr.Zero;
+        }
+
+        var wheelDelta =
+            unchecked(
+                (short)(
+                    (wParam.ToInt64() >>
+                     16) &
+                    0xFFFF));
+
+        if (wheelDelta == 0 ||
+            !BeginPageGesture())
+        {
+            return IntPtr.Zero;
+        }
+
+        // WM_MOUSEHWHEEL uses positive values for movement to the right.
+        // Move the page surface in the opposite direction so the interaction
+        // follows direct-manipulation/content-scrolling conventions.
+        ApplyPageGestureDelta(
+            -wheelDelta *
+            HorizontalWheelDipScale);
+
+        _horizontalPageGestureTimer.Stop();
+        _horizontalPageGestureTimer.Start();
+
+        handled = true;
+        return IntPtr.Zero;
+    }
+
+    private void OnHorizontalPageGestureTimerTick()
+    {
+        _horizontalPageGestureTimer.Stop();
+
+        if (_touchPageGestureActive)
+            return;
+
+        CompletePageGesture();
+    }
+
+    private void OnPageManipulationStarting(
+        object? sender,
+        ManipulationStartingEventArgs e)
+    {
+        if (_internalDragInProgress ||
+            _endingInternalDrag ||
+            PageCount <= 1)
+        {
+            return;
+        }
+
+        e.ManipulationContainer =
+            ItemsViewport;
+
+        e.Mode =
+            ManipulationModes.TranslateX;
+
+        _touchPageGestureActive =
+            BeginPageGesture();
+    }
+
+    private void OnPageManipulationDelta(
+        object? sender,
+        ManipulationDeltaEventArgs e)
+    {
+        if (!_touchPageGestureActive ||
+            _internalDragInProgress ||
+            _endingInternalDrag)
+        {
+            return;
+        }
+
+        var deltaX =
+            e.DeltaManipulation
+                .Translation.X;
+
+        if (Math.Abs(deltaX) < 0.01)
+            return;
+
+        ApplyPageGestureDelta(
+            deltaX);
+
+        e.Handled = true;
+    }
+
+    private void OnPageManipulationCompleted(
+        object? sender,
+        ManipulationCompletedEventArgs e)
+    {
+        if (!_touchPageGestureActive)
+            return;
+
+        _touchPageGestureActive =
+            false;
+
+        CompletePageGesture();
+        e.Handled = true;
+    }
+
+    private bool BeginPageGesture()
+    {
+        if (_internalDragInProgress ||
+            _endingInternalDrag ||
+            PageCount <= 1 ||
+            ItemsPanel.RenderTransform is not
+                TranslateTransform translate)
+        {
+            return false;
+        }
+
+        if (_pageGestureActive)
+            return true;
+
+        translate.BeginAnimation(
+            TranslateTransform.XProperty,
+            null);
+
+        translate.X = 0;
+
+        _pageGestureOffset = 0;
+        _pageGestureActive = true;
+
+        return true;
+    }
+
+    private void ApplyPageGestureDelta(
+        double deltaX)
+    {
+        if (!_pageGestureActive ||
+            ItemsPanel.RenderTransform is not
+                TranslateTransform translate)
+        {
+            return;
+        }
+
+        var pushesPastFirstPage =
+            _currentPage == 0 &&
+            deltaX > 0;
+
+        var pushesPastLastPage =
+            _currentPage ==
+                PageCount - 1 &&
+            deltaX < 0;
+
+        if (pushesPastFirstPage ||
+            pushesPastLastPage)
+        {
+            deltaX *=
+                PageGestureEdgeResistance;
+        }
+
+        var maxTravel =
+            Math.Max(
+                72,
+                ItemsViewport.ActualWidth *
+                PageGestureMaxFraction);
+
+        _pageGestureOffset =
+            Math.Clamp(
+                _pageGestureOffset +
+                deltaX,
+                -maxTravel,
+                maxTravel);
+
+        translate.BeginAnimation(
+            TranslateTransform.XProperty,
+            null);
+
+        translate.X =
+            _pageGestureOffset;
+    }
+
+    private void CompletePageGesture()
+    {
+        if (!_pageGestureActive)
+            return;
+
+        _horizontalPageGestureTimer.Stop();
+        _touchPageGestureActive = false;
+        _pageGestureActive = false;
+
+        var viewportWidth =
+            Math.Max(
+                1,
+                ItemsViewport.ActualWidth);
+
+        var commitDistance =
+            Math.Clamp(
+                viewportWidth *
+                PageGestureCommitFraction,
+                48,
+                84);
+
+        var pageDelta = 0;
+
+        if (_pageGestureOffset <=
+                -commitDistance &&
+            _currentPage <
+                PageCount - 1)
+        {
+            pageDelta = 1;
+        }
+        else if (_pageGestureOffset >=
+                     commitDistance &&
+                 _currentPage > 0)
+        {
+            pageDelta = -1;
+        }
+
+        if (pageDelta == 0)
+        {
+            SnapPageGestureBack();
+            return;
+        }
+
+        CommitPageGesture(
+            pageDelta);
+    }
+
+    private void SnapPageGestureBack()
+    {
+        if (ItemsPanel.RenderTransform is not
+            TranslateTransform translate)
+        {
+            _pageGestureOffset = 0;
+            return;
+        }
+
+        var from =
+            _pageGestureOffset;
+
+        _pageGestureOffset = 0;
+
+        translate.BeginAnimation(
+            TranslateTransform.XProperty,
+            null);
+
+        // The base value is already the final snapped position. The animation
+        // temporarily presents the gesture offset and then releases to zero.
+        translate.X = 0;
+
+        translate.BeginAnimation(
+            TranslateTransform.XProperty,
+            new DoubleAnimation(
+                from,
+                0,
+                TimeSpan.FromMilliseconds(
+                    155))
+            {
+                EasingFunction =
+                    new CubicEase
+                    {
+                        EasingMode =
+                            EasingMode.EaseOut
+                    },
+                FillBehavior =
+                    FillBehavior.Stop
+            });
+    }
+
+    private void CommitPageGesture(
+        int pageDelta)
+    {
+        if (ItemsPanel.RenderTransform is not
+            TranslateTransform translate)
+        {
+            _pageGestureOffset = 0;
+
+            NavigateToPage(
+                _currentPage +
+                pageDelta,
+                animate: true);
+
+            return;
+        }
+
+        var from =
+            _pageGestureOffset;
+
+        var exitDistance =
+            Math.Min(
+                112,
+                Math.Max(
+                    76,
+                    ItemsViewport.ActualWidth *
+                    0.24));
+
+        var to =
+            pageDelta > 0
+                ? -exitDistance
+                : exitDistance;
+
+        _pageGestureOffset = 0;
+
+        translate.BeginAnimation(
+            TranslateTransform.XProperty,
+            null);
+
+        translate.X = 0;
+
+        var finish =
+            new DoubleAnimation(
+                from,
+                to,
+                TimeSpan.FromMilliseconds(
+                    105))
+            {
+                EasingFunction =
+                    new CubicEase
+                    {
+                        EasingMode =
+                            EasingMode.EaseOut
+                    },
+                FillBehavior =
+                    FillBehavior.Stop
+            };
+
+        finish.Completed +=
+            (_, _) =>
+            {
+                translate.BeginAnimation(
+                    TranslateTransform.XProperty,
+                    null);
+
+                translate.X = 0;
+
+                NavigateToPage(
+                    _currentPage +
+                    pageDelta,
+                    animate: true);
+            };
+
+        translate.BeginAnimation(
+            TranslateTransform.XProperty,
+            finish);
+    }
+
+    private void CancelPageGesture()
+    {
+        _horizontalPageGestureTimer.Stop();
+        _touchPageGestureActive = false;
+        _pageGestureActive = false;
+        _pageGestureOffset = 0;
+
+        if (ItemsPanel.RenderTransform is not
+            TranslateTransform translate)
+        {
+            return;
+        }
+
+        translate.BeginAnimation(
+            TranslateTransform.XProperty,
+            null);
+
+        translate.X = 0;
+    }
+
     private void OnPreviewKeyDown(
         object sender,
         KeyEventArgs e)
@@ -713,6 +1153,7 @@ public partial class FolderPopupWindow : Window
         _dragOrderChanged = false;
         CancelDragPageSwitch();
         CancelLiveDragPageSwitch();
+        CancelPageGesture();
         ClearDropIndicator();
 
         _dragPointerOffset =
