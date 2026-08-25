@@ -353,19 +353,29 @@ The workflow:
 
 ## Roadmap
 
-Popup and compact desktop tiles share the live GPU glass material. Tile and
-popup-item right-click actions now use one reusable iOS-inspired context-menu
-visual system with rounded chrome, subtle opening motion and destructive-action
-styling.
+The core desktop-folder experience is now in place:
+
+- Live GPU glass material shared by popup and compact desktop tiles.
+- Reusable iOS-inspired context menus.
+- iOS-like lifted app reorder with live slot displacement.
+- Cross-page app drag while keeping the lifted icon attached to the pointer.
+- Touch and precision-touchpad horizontal page gestures with proportional
+  movement, edge resistance and snapping.
+- Stable desktop/WorkerW integration, Explorer recovery and multi-monitor
+  per-monitor-DPI positioning.
+- Start-with-Windows support and live appearance settings.
 
 Near-term priorities:
 
-1. Replace internal app reorder with an iOS-like lifted drag visual and live
-   slot displacement.
-2. Refine cross-page drag so the lifted app can flow naturally between pages.
-3. Add touchpad/touch page gestures with proportional movement and snapping.
-4. Extend Explorer compatibility profiles as new Windows layouts are observed.
-5. Steam/Epic library import and higher-quality artwork fallbacks.
+1. Add Steam library import with installed-game discovery and native Steam
+   launch URLs.
+2. Add Epic Games library import using the same provider metadata model.
+3. Improve imported-game artwork/icon fallbacks where launcher metadata does
+   not expose a high-quality icon.
+4. Continue extending Explorer desktop-layout compatibility profiles as new
+   Windows builds and shell layouts are observed.
+5. Polish accessibility, keyboard navigation and touch interaction across the
+   custom menus and import dialogs.
 
 ## Project structure
 
