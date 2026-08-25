@@ -30,6 +30,7 @@ public partial class FolderPopupWindow : Window
     private readonly Action _save;
     private readonly Action _refreshTile;
     private readonly System.Windows.Threading.DispatcherTimer _dragPageTimer;
+    private readonly System.Windows.Threading.DispatcherTimer _liveDragPageTimer;
 
     private GpuGlassBackdropService? _glassBackdrop;
     private bool _isClosing;
@@ -45,6 +46,8 @@ public partial class FolderPopupWindow : Window
     private FrameworkElement? _dragGhost;
     private Point _dragPointerOffset;
     private int _dragOriginalIndex = -1;
+    private int _dragOriginalPage = -1;
+    private int _pendingLiveDragPageDelta;
     private bool _dragOrderChanged;
     private bool _endingInternalDrag;
     private Border? _dropIndicatorCard;
@@ -77,6 +80,18 @@ public partial class FolderPopupWindow : Window
             Interval = TimeSpan.FromMilliseconds(560)
         };
         _dragPageTimer.Tick += (_, _) => OnDragPageTimerTick();
+
+        _liveDragPageTimer =
+            new System.Windows.Threading.DispatcherTimer
+            {
+                Interval =
+                    TimeSpan.FromMilliseconds(
+                        480)
+            };
+
+        _liveDragPageTimer.Tick +=
+            (_, _) =>
+                OnLiveDragPageTimerTick();
 
         TitleText.Text = folder.Name;
         ApplyGlassAppearance();
@@ -509,6 +524,28 @@ public partial class FolderPopupWindow : Window
         if (delta == 0)
             return;
 
+        if (_internalDragInProgress)
+        {
+            CancelLiveDragPageSwitch();
+
+            var targetPage =
+                Math.Clamp(
+                    _currentPage + delta,
+                    0,
+                    PageCount - 1);
+
+            if (targetPage !=
+                _currentPage)
+            {
+                MoveDraggedItemToPage(
+                    targetPage,
+                    delta);
+            }
+
+            e.Handled = true;
+            return;
+        }
+
         NavigateToPage(
             _currentPage + delta,
             animate: true);
@@ -560,6 +597,7 @@ public partial class FolderPopupWindow : Window
             Width = 108,
             Height = 112,
             Margin = new Thickness(4),
+            Tag = item,
             RenderTransform = new TranslateTransform()
         };
 
@@ -671,8 +709,10 @@ public partial class FolderPopupWindow : Window
         _dragSourceRoot = root;
         _dragSourceCard = card;
         _dragOriginalIndex = itemIndex;
+        _dragOriginalPage = _currentPage;
         _dragOrderChanged = false;
         CancelDragPageSwitch();
+        CancelLiveDragPageSwitch();
         ClearDropIndicator();
 
         _dragPointerOffset =
@@ -813,6 +853,7 @@ public partial class FolderPopupWindow : Window
         MouseEventArgs e)
     {
         if (!_internalDragInProgress ||
+            _endingInternalDrag ||
             _draggedItem is null ||
             _dragSourceRoot is null)
         {
@@ -832,6 +873,10 @@ public partial class FolderPopupWindow : Window
             e.GetPosition(
                 ItemsViewport));
 
+        UpdateLiveDragPageSwitch(
+            e.GetPosition(
+                PopupCard));
+
         var targetIndex =
             GetLiveReorderTargetIndex(
                 e.GetPosition(
@@ -841,6 +886,198 @@ public partial class FolderPopupWindow : Window
             targetIndex);
 
         e.Handled = true;
+    }
+
+    private void UpdateLiveDragPageSwitch(
+        Point point)
+    {
+        if (!_internalDragInProgress ||
+            _endingInternalDrag ||
+            PageCount <= 1)
+        {
+            CancelLiveDragPageSwitch();
+            return;
+        }
+
+        var delta = 0;
+
+        if (point.X <=
+                DragPageEdgeWidth &&
+            _currentPage > 0)
+        {
+            delta = -1;
+        }
+        else if (point.X >=
+                     PopupCard.ActualWidth -
+                     DragPageEdgeWidth &&
+                 _currentPage <
+                     PageCount - 1)
+        {
+            delta = 1;
+        }
+
+        if (delta == 0)
+        {
+            CancelLiveDragPageSwitch();
+            return;
+        }
+
+        if (_liveDragPageTimer.IsEnabled &&
+            _pendingLiveDragPageDelta ==
+                delta)
+        {
+            return;
+        }
+
+        _pendingLiveDragPageDelta =
+            delta;
+
+        _liveDragPageTimer.Stop();
+        _liveDragPageTimer.Start();
+    }
+
+    private void OnLiveDragPageTimerTick()
+    {
+        _liveDragPageTimer.Stop();
+
+        if (!_internalDragInProgress ||
+            _endingInternalDrag ||
+            _draggedItem is null ||
+            _pendingLiveDragPageDelta == 0)
+        {
+            return;
+        }
+
+        var direction =
+            _pendingLiveDragPageDelta;
+
+        _pendingLiveDragPageDelta =
+            0;
+
+        var targetPage =
+            Math.Clamp(
+                _currentPage +
+                direction,
+                0,
+                PageCount - 1);
+
+        if (targetPage ==
+            _currentPage)
+        {
+            return;
+        }
+
+        MoveDraggedItemToPage(
+            targetPage,
+            direction);
+
+        // If the pointer is still held at an edge, allow moving through more
+        // than one page without requiring the user to move away and back.
+        UpdateLiveDragPageSwitch(
+            Mouse.GetPosition(
+                PopupCard));
+    }
+
+    private void MoveDraggedItemToPage(
+        int targetPage,
+        int direction)
+    {
+        if (_draggedItem is null)
+            return;
+
+        var currentIndex =
+            _folder.Items.IndexOf(
+                _draggedItem);
+
+        if (currentIndex < 0)
+            return;
+
+        _folder.Items.RemoveAt(
+            currentIndex);
+
+        // Entering a page from the left places the lifted item at its first
+        // slot. Entering from the right places it at the last visible slot.
+        // The boundary item naturally flows to the adjacent page, like iOS.
+        var insertionIndex =
+            direction > 0
+                ? Math.Min(
+                    targetPage *
+                        ItemsPerPage,
+                    _folder.Items.Count)
+                : Math.Min(
+                    ((targetPage + 1) *
+                        ItemsPerPage) -
+                        1,
+                    _folder.Items.Count);
+
+        _folder.Items.Insert(
+            Math.Clamp(
+                insertionIndex,
+                0,
+                _folder.Items.Count),
+            _draggedItem);
+
+        _currentPage =
+            targetPage;
+
+        _dragOrderChanged =
+            true;
+
+        RefreshItems();
+        RestoreDragPlaceholderOnCurrentPage();
+        AnimatePageEntry(
+            direction);
+    }
+
+    private void RestoreDragPlaceholderOnCurrentPage()
+    {
+        if (_draggedItem is null)
+            return;
+
+        _dragSourceRoot = null;
+        _dragSourceCard = null;
+
+        foreach (var child in
+                 ItemsPanel.Children)
+        {
+            if (child is not Grid root ||
+                !ReferenceEquals(
+                    root.Tag,
+                    _draggedItem))
+            {
+                continue;
+            }
+
+            _dragSourceRoot =
+                root;
+
+            _dragSourceCard =
+                root.Children
+                    .OfType<Border>()
+                    .FirstOrDefault();
+
+            break;
+        }
+
+        if (_dragSourceCard is null)
+            return;
+
+        _dragSourceCard.Background =
+            Brushes.Transparent;
+
+        _dragSourceCard.Opacity =
+            0.08;
+
+        _dragSourceCard.IsHitTestVisible =
+            false;
+
+        ItemsPanel.UpdateLayout();
+    }
+
+    private void CancelLiveDragPageSwitch()
+    {
+        _liveDragPageTimer.Stop();
+        _pendingLiveDragPageDelta = 0;
     }
 
     private void OnInternalDragMouseUp(
@@ -1163,11 +1400,172 @@ public partial class FolderPopupWindow : Window
         bool commit,
         bool releaseCapture = true)
     {
-        if (!_internalDragInProgress)
+        if (!_internalDragInProgress ||
+            _endingInternalDrag)
+        {
             return;
+        }
 
-        _endingInternalDrag = true;
+        _endingInternalDrag =
+            true;
 
+        CancelDragPageSwitch();
+        CancelLiveDragPageSwitch();
+
+        if (releaseCapture &&
+            IsMouseCaptured)
+        {
+            ReleaseMouseCapture();
+        }
+
+        if (commit &&
+            _dragGhost is not null &&
+            _dragSourceRoot is not null)
+        {
+            AnimateDragGhostToPlaceholder(
+                () =>
+                    FinalizeInternalItemDrag(
+                        commit: true));
+
+            return;
+        }
+
+        FinalizeInternalItemDrag(
+            commit);
+    }
+
+    private void AnimateDragGhostToPlaceholder(
+        Action completed)
+    {
+        if (_dragGhost is null ||
+            _dragSourceRoot is null)
+        {
+            completed();
+            return;
+        }
+
+        // Finish any page slide before resolving the final slot coordinates.
+        if (ItemsPanel.RenderTransform is
+            TranslateTransform pageTranslate)
+        {
+            pageTranslate.BeginAnimation(
+                TranslateTransform.XProperty,
+                null);
+
+            pageTranslate.X =
+                0;
+        }
+
+        ItemsPanel.UpdateLayout();
+
+        var target =
+            _dragSourceRoot.TranslatePoint(
+                new Point(
+                    0,
+                    0),
+                DragOverlay);
+
+        var currentLeft =
+            Canvas.GetLeft(
+                _dragGhost);
+
+        var currentTop =
+            Canvas.GetTop(
+                _dragGhost);
+
+        if (double.IsNaN(currentLeft))
+            currentLeft = target.X;
+
+        if (double.IsNaN(currentTop))
+            currentTop = target.Y;
+
+        var ease =
+            new QuarticEase
+            {
+                EasingMode =
+                    EasingMode.EaseOut
+            };
+
+        var duration =
+            TimeSpan.FromMilliseconds(
+                135);
+
+        var leftAnimation =
+            new DoubleAnimation(
+                currentLeft,
+                target.X,
+                duration)
+            {
+                EasingFunction =
+                    ease,
+                FillBehavior =
+                    FillBehavior.Stop
+            };
+
+        var topAnimation =
+            new DoubleAnimation(
+                currentTop,
+                target.Y,
+                duration)
+            {
+                EasingFunction =
+                    ease,
+                FillBehavior =
+                    FillBehavior.Stop
+            };
+
+        topAnimation.Completed +=
+            (_, _) =>
+            {
+                Canvas.SetLeft(
+                    _dragGhost,
+                    target.X);
+
+                Canvas.SetTop(
+                    _dragGhost,
+                    target.Y);
+
+                completed();
+            };
+
+        _dragGhost.BeginAnimation(
+            Canvas.LeftProperty,
+            leftAnimation);
+
+        _dragGhost.BeginAnimation(
+            Canvas.TopProperty,
+            topAnimation);
+
+        if (_dragGhost.RenderTransform is
+            ScaleTransform scale)
+        {
+            scale.BeginAnimation(
+                ScaleTransform.ScaleXProperty,
+                new DoubleAnimation(
+                    scale.ScaleX,
+                    1,
+                    duration)
+                {
+                    EasingFunction =
+                        ease
+                });
+
+            scale.BeginAnimation(
+                ScaleTransform.ScaleYProperty,
+                new DoubleAnimation(
+                    scale.ScaleY,
+                    1,
+                    duration)
+                {
+                    EasingFunction =
+                        ease
+                });
+        }
+    }
+
+    private void FinalizeInternalItemDrag(
+        bool commit)
+    {
         try
         {
             var draggedItem =
@@ -1198,10 +1596,27 @@ public partial class FolderPopupWindow : Window
                             _folder.Items.Count),
                         draggedItem);
                 }
+
+                if (_dragOriginalPage >= 0)
+                {
+                    _currentPage =
+                        Math.Clamp(
+                            _dragOriginalPage,
+                            0,
+                            PageCount - 1);
+                }
             }
 
             if (_dragGhost is not null)
             {
+                _dragGhost.BeginAnimation(
+                    Canvas.LeftProperty,
+                    null);
+
+                _dragGhost.BeginAnimation(
+                    Canvas.TopProperty,
+                    null);
+
                 DragOverlay.Children.Remove(
                     _dragGhost);
             }
@@ -1240,16 +1655,10 @@ public partial class FolderPopupWindow : Window
             _dragSourceCard = null;
             _dragGhost = null;
             _dragOriginalIndex = -1;
+            _dragOriginalPage = -1;
             _dragOrderChanged = false;
 
-            CancelDragPageSwitch();
             ClearDropIndicator();
-
-            if (releaseCapture &&
-                IsMouseCaptured)
-            {
-                ReleaseMouseCapture();
-            }
 
             if (!commit)
             {
@@ -1260,12 +1669,18 @@ public partial class FolderPopupWindow : Window
             if (orderChanged)
             {
                 _save();
+
+                // Rebuild once from the committed model so a keyboard or
+                // edge-driven page transition cannot leave stale visuals from
+                // the temporary drag placeholder behind.
+                RefreshItems();
                 _refreshTile();
             }
         }
         finally
         {
-            _endingInternalDrag = false;
+            _endingInternalDrag =
+                false;
         }
     }
 
