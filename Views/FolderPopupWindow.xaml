@@ -105,6 +105,12 @@
                                    HorizontalAlignment="Center"
                                    VerticalAlignment="Center"
                                    IsHitTestVisible="False"/>
+
+                        <!-- Lifted app visuals live above the UniformGrid while
+                             the original card remains as the moving placeholder. -->
+                        <Canvas x:Name="DragOverlay"
+                                Panel.ZIndex="20"
+                                IsHitTestVisible="False"/>
                     </Grid>
 
                     <StackPanel x:Name="PageIndicators"

@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Effects;
 using SmoothFolder.Models;
 using SmoothFolder.Native;
 using SmoothFolder.Services;
@@ -38,6 +39,14 @@ public partial class FolderPopupWindow : Window
     private Window? _anchorTile;
     private AppItem? _pressedItem;
     private Point _pressedItemPosition;
+    private AppItem? _draggedItem;
+    private Grid? _dragSourceRoot;
+    private Border? _dragSourceCard;
+    private FrameworkElement? _dragGhost;
+    private Point _dragPointerOffset;
+    private int _dragOriginalIndex = -1;
+    private bool _dragOrderChanged;
+    private bool _endingInternalDrag;
     private Border? _dropIndicatorCard;
     private Border? _dropIndicatorMarker;
     private int? _dropInsertionIndex;
@@ -104,6 +113,9 @@ public partial class FolderPopupWindow : Window
 
         PreviewKeyDown += OnPreviewKeyDown;
         PreviewMouseWheel += OnPreviewMouseWheel;
+        MouseMove += OnInternalDragMouseMove;
+        MouseLeftButtonUp += OnInternalDragMouseUp;
+        LostMouseCapture += OnInternalDragLostMouseCapture;
 
         DragOver += OnPopupDragOver;
         DragLeave += OnPopupDragLeave;
@@ -467,6 +479,16 @@ public partial class FolderPopupWindow : Window
         object sender,
         KeyEventArgs e)
     {
+        if (e.Key == Key.Escape &&
+            _internalDragInProgress)
+        {
+            EndInternalItemDrag(
+                commit: false);
+
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key == Key.Escape)
         {
             RequestClose();
@@ -530,47 +552,31 @@ public partial class FolderPopupWindow : Window
             CornerRadius = new CornerRadius(18),
             Background = Brushes.Transparent,
             Child = stack,
-            Cursor = Cursors.Hand,
-            AllowDrop = true
-        };
-
-        // The marker lives in a non-hit-testable overlay so it does not change
-        // card layout while the pointer crosses insertion positions.
-        var marker = new Border
-        {
-            Width = 3,
-            Height = 80,
-            CornerRadius = new CornerRadius(1.5),
-            Background = new SolidColorBrush(
-                Color.FromArgb(220, 255, 255, 255)),
-            HorizontalAlignment = HorizontalAlignment.Left,
-            VerticalAlignment = VerticalAlignment.Center,
-            Visibility = Visibility.Collapsed,
-            IsHitTestVisible = false
+            Cursor = Cursors.Hand
         };
 
         var root = new Grid
         {
             Width = 108,
             Height = 112,
-            Margin = new Thickness(4)
+            Margin = new Thickness(4),
+            RenderTransform = new TranslateTransform()
         };
 
         root.Children.Add(card);
-        root.Children.Add(marker);
 
         card.MouseEnter += (_, _) =>
         {
-            if (!ReferenceEquals(_dropIndicatorCard, card))
-            {
-                card.Background = new SolidColorBrush(
-                    Color.FromArgb(40, 255, 255, 255));
-            }
+            if (_internalDragInProgress)
+                return;
+
+            card.Background = new SolidColorBrush(
+                Color.FromArgb(40, 255, 255, 255));
         };
 
         card.MouseLeave += (_, _) =>
         {
-            if (!ReferenceEquals(_dropIndicatorCard, card))
+            if (!_internalDragInProgress)
                 card.Background = Brushes.Transparent;
         };
 
@@ -584,7 +590,11 @@ public partial class FolderPopupWindow : Window
         };
 
         card.PreviewMouseMove += (_, e) =>
-            TryBeginItemDrag(item, card, e);
+            TryBeginItemDrag(
+                item,
+                card,
+                root,
+                e);
 
         card.PreviewMouseLeftButtonUp += (_, e) =>
         {
@@ -600,32 +610,9 @@ public partial class FolderPopupWindow : Window
             e.Handled = true;
         };
 
-        card.DragOver += (_, e) =>
-            HandleItemDragOver(item, card, marker, e);
-
-        card.DragLeave += (_, e) =>
-        {
-            if (!IsInternalItemDrag(e.Data))
-                return;
-
-            // DragLeave can occur while moving from the card to its overlay.
-            // Only clear when the pointer really left the card bounds.
-            var point = e.GetPosition(card);
-
-            if (point.X < 0 ||
-                point.Y < 0 ||
-                point.X > card.ActualWidth ||
-                point.Y > card.ActualHeight)
-            {
-                ClearDropIndicator();
-            }
-        };
-
-        card.Drop += (_, e) =>
-            HandleItemDrop(item, card, e);
-
-        // Standard WPF ContextMenu is attached to the whole item card, so
-        // right-click works consistently on the icon, label, or empty padding.
+        // The custom reorder engine handles internal pointer movement itself.
+        // WPF drag/drop remains enabled at the window level exclusively for
+        // files/shortcuts arriving from Explorer.
         card.ContextMenu = BuildItemContextMenu(item);
 
         return root;
@@ -651,6 +638,7 @@ public partial class FolderPopupWindow : Window
     private void TryBeginItemDrag(
         AppItem item,
         Border card,
+        Grid root,
         MouseEventArgs e)
     {
         if (_internalDragInProgress ||
@@ -670,33 +658,615 @@ public partial class FolderPopupWindow : Window
             return;
         }
 
+        var itemIndex =
+            _folder.Items.IndexOf(
+                item);
+
+        if (itemIndex < 0)
+            return;
+
         _internalDragInProgress = true;
         _pressedItem = null;
+        _draggedItem = item;
+        _dragSourceRoot = root;
+        _dragSourceCard = card;
+        _dragOriginalIndex = itemIndex;
+        _dragOrderChanged = false;
         CancelDragPageSwitch();
+        ClearDropIndicator();
 
-        var previousOpacity = card.Opacity;
-        card.Opacity = 0.52;
+        _dragPointerOffset =
+            e.GetPosition(
+                root);
+
+        card.Background =
+            Brushes.Transparent;
+
+        card.Opacity =
+            0.08;
+
+        card.IsHitTestVisible =
+            false;
+
+        _dragGhost =
+            BuildDragGhost(
+                item);
+
+        DragOverlay.Children.Add(
+            _dragGhost);
+
+        PositionDragGhost(
+            e.GetPosition(
+                ItemsViewport));
+
+        _ =
+            Mouse.Capture(
+                this,
+                CaptureMode.SubTree);
+
+        e.Handled = true;
+    }
+
+    private FrameworkElement BuildDragGhost(
+        AppItem item)
+    {
+        var icon =
+            new Image
+            {
+                Source =
+                    _icons.GetIcon(
+                        item.Path,
+                        128),
+                Width = 62,
+                Height = 62,
+                Stretch = Stretch.Uniform,
+                HorizontalAlignment =
+                    HorizontalAlignment.Center,
+                SnapsToDevicePixels = true,
+                UseLayoutRounding = true
+            };
+
+        RenderOptions.SetBitmapScalingMode(
+            icon,
+            BitmapScalingMode.HighQuality);
+
+        var label =
+            new TextBlock
+            {
+                Text =
+                    item.DisplayName,
+                Foreground =
+                    (Brush)FindResource(
+                        "TextPrimaryBrush"),
+                FontFamily =
+                    (FontFamily)FindResource(
+                        "UiFontFamily"),
+                FontSize = 12.5,
+                TextAlignment =
+                    TextAlignment.Center,
+                TextTrimming =
+                    TextTrimming.CharacterEllipsis,
+                MaxWidth = 96,
+                Margin =
+                    new Thickness(
+                        0,
+                        8,
+                        0,
+                        0)
+            };
+
+        var content =
+            new StackPanel();
+
+        content.Children.Add(
+            icon);
+
+        content.Children.Add(
+            label);
+
+        var ghost =
+            new Border
+            {
+                Width = 108,
+                Height = 112,
+                Padding =
+                    new Thickness(
+                        6),
+                CornerRadius =
+                    new CornerRadius(
+                        18),
+                Background =
+                    new SolidColorBrush(
+                        Color.FromArgb(
+                            22,
+                            255,
+                            255,
+                            255)),
+                Child =
+                    content,
+                Opacity =
+                    0.98,
+                RenderTransformOrigin =
+                    new Point(
+                        0.5,
+                        0.5),
+                RenderTransform =
+                    new ScaleTransform(
+                        1.07,
+                        1.07),
+                Effect =
+                    new DropShadowEffect
+                    {
+                        BlurRadius = 22,
+                        ShadowDepth = 7,
+                        Opacity = 0.42
+                    },
+                IsHitTestVisible =
+                    false
+            };
+
+        return ghost;
+    }
+
+    private void OnInternalDragMouseMove(
+        object sender,
+        MouseEventArgs e)
+    {
+        if (!_internalDragInProgress ||
+            _draggedItem is null ||
+            _dragSourceRoot is null)
+        {
+            return;
+        }
+
+        if (e.LeftButton !=
+            MouseButtonState.Pressed)
+        {
+            EndInternalItemDrag(
+                commit: true);
+
+            return;
+        }
+
+        PositionDragGhost(
+            e.GetPosition(
+                ItemsViewport));
+
+        var targetIndex =
+            GetLiveReorderTargetIndex(
+                e.GetPosition(
+                    ItemsPanel));
+
+        MoveDraggedItemLive(
+            targetIndex);
+
+        e.Handled = true;
+    }
+
+    private void OnInternalDragMouseUp(
+        object sender,
+        MouseButtonEventArgs e)
+    {
+        if (!_internalDragInProgress ||
+            e.ChangedButton !=
+                MouseButton.Left)
+        {
+            return;
+        }
+
+        EndInternalItemDrag(
+            commit: true);
+
+        e.Handled = true;
+    }
+
+    private void OnInternalDragLostMouseCapture(
+        object sender,
+        MouseEventArgs e)
+    {
+        if (!_internalDragInProgress ||
+            _endingInternalDrag)
+        {
+            return;
+        }
+
+        EndInternalItemDrag(
+            commit: true,
+            releaseCapture: false);
+    }
+
+    private void PositionDragGhost(
+        Point pointer)
+    {
+        if (_dragGhost is null)
+            return;
+
+        Canvas.SetLeft(
+            _dragGhost,
+            pointer.X -
+            _dragPointerOffset.X);
+
+        Canvas.SetTop(
+            _dragGhost,
+            pointer.Y -
+            _dragPointerOffset.Y);
+    }
+
+    private int GetLiveReorderTargetIndex(
+        Point pointer)
+    {
+        if (_folder.Items.Count == 0 ||
+            ItemsPanel.ActualWidth <= 0 ||
+            ItemsPanel.ActualHeight <= 0)
+        {
+            return _dragOriginalIndex;
+        }
+
+        var visibleCount =
+            Math.Min(
+                ItemsPerPage,
+                Math.Max(
+                    0,
+                    _folder.Items.Count -
+                    CurrentPageStartIndex));
+
+        if (visibleCount <= 0)
+            return _dragOriginalIndex;
+
+        var cellWidth =
+            ItemsPanel.ActualWidth /
+            PageColumns;
+
+        var cellHeight =
+            ItemsPanel.ActualHeight /
+            3.0;
+
+        var column =
+            Math.Clamp(
+                (int)Math.Floor(
+                    pointer.X /
+                    Math.Max(
+                        1.0,
+                        cellWidth)),
+                0,
+                PageColumns - 1);
+
+        var row =
+            Math.Clamp(
+                (int)Math.Floor(
+                    pointer.Y /
+                    Math.Max(
+                        1.0,
+                        cellHeight)),
+                0,
+                2);
+
+        var slot =
+            Math.Clamp(
+                (row * PageColumns) +
+                column,
+                0,
+                visibleCount - 1);
+
+        return
+            CurrentPageStartIndex +
+            slot;
+    }
+
+    private void MoveDraggedItemLive(
+        int targetIndex)
+    {
+        if (_draggedItem is null ||
+            _dragSourceRoot is null)
+        {
+            return;
+        }
+
+        var currentIndex =
+            _folder.Items.IndexOf(
+                _draggedItem);
+
+        if (currentIndex < 0)
+            return;
+
+        var pageStart =
+            CurrentPageStartIndex;
+
+        var pageEnd =
+            Math.Min(
+                pageStart +
+                ItemsPerPage -
+                1,
+                _folder.Items.Count -
+                1);
+
+        targetIndex =
+            Math.Clamp(
+                targetIndex,
+                pageStart,
+                pageEnd);
+
+        if (targetIndex ==
+            currentIndex)
+        {
+            return;
+        }
+
+        var previousPositions =
+            CaptureVisibleItemPositions();
+
+        _folder.Items.RemoveAt(
+            currentIndex);
+
+        _folder.Items.Insert(
+            targetIndex,
+            _draggedItem);
+
+        var currentChildIndex =
+            ItemsPanel.Children.IndexOf(
+                _dragSourceRoot);
+
+        var targetChildIndex =
+            Math.Clamp(
+                targetIndex -
+                pageStart,
+                0,
+                ItemsPanel.Children.Count -
+                1);
+
+        if (currentChildIndex >= 0 &&
+            currentChildIndex !=
+                targetChildIndex)
+        {
+            ItemsPanel.Children.RemoveAt(
+                currentChildIndex);
+
+            ItemsPanel.Children.Insert(
+                targetChildIndex,
+                _dragSourceRoot);
+        }
+
+        ItemsPanel.UpdateLayout();
+
+        AnimateVisibleItemReflow(
+            previousPositions);
+
+        _dragOrderChanged = true;
+    }
+
+    private Dictionary<UIElement, Point>
+        CaptureVisibleItemPositions()
+    {
+        var positions =
+            new Dictionary<UIElement, Point>();
+
+        foreach (UIElement child in
+                 ItemsPanel.Children)
+        {
+            if (ReferenceEquals(
+                    child,
+                    _dragSourceRoot))
+            {
+                continue;
+            }
+
+            positions[child] =
+                child.TranslatePoint(
+                    new Point(
+                        0,
+                        0),
+                    ItemsPanel);
+        }
+
+        return positions;
+    }
+
+    private void AnimateVisibleItemReflow(
+        IReadOnlyDictionary<UIElement, Point>
+            previousPositions)
+    {
+        var easing =
+            new CubicEase
+            {
+                EasingMode =
+                    EasingMode.EaseOut
+            };
+
+        foreach (var entry in
+                 previousPositions)
+        {
+            if (entry.Key is not
+                    FrameworkElement element ||
+                ReferenceEquals(
+                    element,
+                    _dragSourceRoot))
+            {
+                continue;
+            }
+
+            var current =
+                element.TranslatePoint(
+                    new Point(
+                        0,
+                        0),
+                    ItemsPanel);
+
+            var deltaX =
+                entry.Value.X -
+                current.X;
+
+            var deltaY =
+                entry.Value.Y -
+                current.Y;
+
+            if (Math.Abs(deltaX) < 0.5 &&
+                Math.Abs(deltaY) < 0.5)
+            {
+                continue;
+            }
+
+            if (element.RenderTransform is not
+                TranslateTransform translate)
+            {
+                translate =
+                    new TranslateTransform();
+
+                element.RenderTransform =
+                    translate;
+            }
+
+            translate.BeginAnimation(
+                TranslateTransform.XProperty,
+                null);
+
+            translate.BeginAnimation(
+                TranslateTransform.YProperty,
+                null);
+
+            translate.X =
+                0;
+
+            translate.Y =
+                0;
+
+            translate.BeginAnimation(
+                TranslateTransform.XProperty,
+                new DoubleAnimation(
+                    deltaX,
+                    0,
+                    TimeSpan.FromMilliseconds(
+                        145))
+                {
+                    EasingFunction =
+                        easing,
+                    FillBehavior =
+                        FillBehavior.Stop
+                });
+
+            translate.BeginAnimation(
+                TranslateTransform.YProperty,
+                new DoubleAnimation(
+                    deltaY,
+                    0,
+                    TimeSpan.FromMilliseconds(
+                        145))
+                {
+                    EasingFunction =
+                        easing,
+                    FillBehavior =
+                        FillBehavior.Stop
+                });
+        }
+    }
+
+    private void EndInternalItemDrag(
+        bool commit,
+        bool releaseCapture = true)
+    {
+        if (!_internalDragInProgress)
+            return;
+
+        _endingInternalDrag = true;
 
         try
         {
-            var data = new DataObject(
-                InternalItemDragFormat,
-                item.Id);
+            var draggedItem =
+                _draggedItem;
 
-            _ = DragDrop.DoDragDrop(
-                card,
-                data,
-                DragDropEffects.Move);
+            var orderChanged =
+                _dragOrderChanged;
+
+            if (!commit &&
+                draggedItem is not null &&
+                _dragOriginalIndex >= 0)
+            {
+                var currentIndex =
+                    _folder.Items.IndexOf(
+                        draggedItem);
+
+                if (currentIndex >= 0 &&
+                    currentIndex !=
+                        _dragOriginalIndex)
+                {
+                    _folder.Items.RemoveAt(
+                        currentIndex);
+
+                    _folder.Items.Insert(
+                        Math.Clamp(
+                            _dragOriginalIndex,
+                            0,
+                            _folder.Items.Count),
+                        draggedItem);
+                }
+            }
+
+            if (_dragGhost is not null)
+            {
+                DragOverlay.Children.Remove(
+                    _dragGhost);
+            }
+
+            if (_dragSourceCard is not null)
+            {
+                _dragSourceCard.IsHitTestVisible =
+                    true;
+
+                _dragSourceCard.Opacity =
+                    1;
+
+                _dragSourceCard.BeginAnimation(
+                    OpacityProperty,
+                    new DoubleAnimation(
+                        0.20,
+                        1,
+                        TimeSpan.FromMilliseconds(
+                            110))
+                    {
+                        EasingFunction =
+                            new CubicEase
+                            {
+                                EasingMode =
+                                    EasingMode.EaseOut
+                            },
+                        FillBehavior =
+                            FillBehavior.Stop
+                    });
+            }
+
+            _internalDragInProgress = false;
+            _pressedItem = null;
+            _draggedItem = null;
+            _dragSourceRoot = null;
+            _dragSourceCard = null;
+            _dragGhost = null;
+            _dragOriginalIndex = -1;
+            _dragOrderChanged = false;
+
+            CancelDragPageSwitch();
+            ClearDropIndicator();
+
+            if (releaseCapture &&
+                IsMouseCaptured)
+            {
+                ReleaseMouseCapture();
+            }
+
+            if (!commit)
+            {
+                RefreshItems();
+                return;
+            }
+
+            if (orderChanged)
+            {
+                _save();
+                _refreshTile();
+            }
         }
         finally
         {
-            card.Opacity = previousOpacity;
-            _internalDragInProgress = false;
-            CancelDragPageSwitch();
-            ClearDropIndicator();
+            _endingInternalDrag = false;
         }
-
-        e.Handled = true;
     }
 
     private void HandleItemDragOver(
