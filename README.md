@@ -37,7 +37,8 @@ Windows taskbar and Alt+Tab/task-switcher surfaces.
   - no normal Windows taskbar entry.
   - auxiliary windows are marked as tool windows and excluded from Alt+Tab.
   - compact desktop tiles use `WS_EX_NOACTIVATE` and are kept below normal app windows.
-  - system-tray icon with quick access to the data folder and Exit.
+  - system-tray icon with quick access to the data folder, a per-user
+    **Start with Windows** toggle, and Exit.
   - single-instance process protection.
 - No game or application installation is modified by SmoothFolder.
 
@@ -131,7 +132,8 @@ the app's Gaussian standard deviation. The compositor performs the only blur
 stage continuously on the GPU; SmoothFolder no longer captures the desktop,
 runs a CPU box blur, or maintains a 40 FPS refresh timer.
 
-The composition visual is clipped with a rounded `RectangleClip` matching the
+The composition visual is clipped with a rounded
+`CompositionRoundedRectangleGeometry` / `CompositionGeometricClip` matching the
 inner WPF card. WPF remains responsible for tint, highlights, border, icons and
 text, while the composition helper contributes only the live blurred backdrop.
 
@@ -156,7 +158,7 @@ The .NET Windows SDK keeps `IPropertyValue` itself internal, so effect-property
 marshalling uses its native IID (`4BD682DD-7554-40E9-9A9B-82654EDE7E62`) via
 `QueryInterface` rather than referencing the inaccessible projected type.
 During open/close animations SmoothFolder synchronizes only the helper geometry
-with the transformed WPF card; while dragging, the live host backdrop updates
+with the transformed WPF card; while dragging, the live backdrop updates
 automatically as the helper window moves.
 
 The default GPU material deliberately separates blur from tint: Direct2D
@@ -164,13 +166,10 @@ Gaussian blur uses a light 3 DIP standard deviation (roughly a 9 DIP kernel
 radius), while the WPF tint contribution is reduced when the GPU backdrop is
 active so vivid wallpapers keep recognizable structure. Its
 `Blur.BlurAmount` property is registered as animatable when the effect factory
-is created and is then written explicitly through
-`CompositionEffectBrush.Properties`. During the current blur validation phase,
-SmoothFolder also records a bounded one-time diagnostic showing which effect
-properties Composition queried, the value returned for Direct2D standard
-deviation, and `TryGetScalar` readback before/after `InsertScalar`. This lets the
-property path be verified independently from the visual result. The descriptor exposes the complete three-property Direct2D
-Gaussian Blur surface
+is created and is written explicitly through
+`CompositionEffectBrush.Properties`, keeping the material tunable without
+rebuilding the effect graph. The descriptor exposes the complete three-property
+Direct2D Gaussian Blur surface
 (`StandardDeviation`, `Optimization`, and `BorderMode`) because Composition
 queries the native property table when creating the effect factory. SmoothFolder
 describes that effect through the standard `Windows.Graphics.Effects` contract
@@ -184,6 +183,20 @@ can sample outside the border and avoid edge artifacts. If GPU composition
 initialization fails or High Contrast mode is active, SmoothFolder falls back
 to the existing translucent WPF renderer.
 
+
+## Start with Windows
+
+The tray menu includes a checkable **Start with Windows** item. SmoothFolder
+registers the current executable for the current user under:
+
+```text
+HKCU\Software\Microsoft\Windows\CurrentVersion\Run
+```
+
+No administrator privileges are required. Disabling the option removes the
+`SmoothFolder` value from that key. If the application is moved to a different
+folder, toggling the option off and on again refreshes the registered executable
+path.
 
 ## Background behavior
 
@@ -309,7 +322,6 @@ The workflow:
 - Monitor-relative tile positions are persisted by display device name. If a
   previously used display is disconnected, the tile falls back to an available
   work area and is remapped on the next successful placement.
-- There is no built-in startup-with-Windows setting yet.
 - There is no automatic Steam/Epic library importer yet.
 
 ## Roadmap
@@ -320,8 +332,7 @@ Near-term priorities:
 2. Refine touchpad/touch page gestures and cross-page reorder polish.
 3. Refine GPU glass material tuning (blur, saturation and tint) and evaluate
    whether compact desktop tiles should share the composition material.
-4. Startup-with-Windows support.
-5. Steam/Epic library import and higher-quality artwork fallbacks.
+4. Steam/Epic library import and higher-quality artwork fallbacks.
 
 ## Project structure
 

@@ -9,6 +9,7 @@ public sealed class TrayIconService : IDisposable
 {
     private readonly NotifyIcon _notifyIcon;
     private readonly Icon _icon;
+    private readonly ToolStripMenuItem _startWithWindows;
 
     public TrayIconService(Action exitApplication)
     {
@@ -19,6 +20,19 @@ public sealed class TrayIconService : IDisposable
         var openDataFolder = new ToolStripMenuItem("Open data folder");
         openDataFolder.Click += (_, _) => OpenDataFolder();
 
+        _startWithWindows =
+            new ToolStripMenuItem("Start with Windows")
+            {
+                CheckOnClick = false,
+                Checked = StartupService.IsEnabled()
+            };
+
+        _startWithWindows.Click +=
+            (_, _) => ToggleStartWithWindows();
+
+        menu.Opening +=
+            (_, _) => RefreshStartWithWindowsState();
+
         var exit = new ToolStripMenuItem("Exit SmoothFolder");
         exit.Click += (_, _) =>
         {
@@ -27,6 +41,7 @@ public sealed class TrayIconService : IDisposable
         };
 
         menu.Items.Add(openDataFolder);
+        menu.Items.Add(_startWithWindows);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(exit);
 
@@ -45,6 +60,41 @@ public sealed class TrayIconService : IDisposable
         _notifyIcon.ContextMenuStrip?.Dispose();
         _notifyIcon.Dispose();
         _icon.Dispose();
+    }
+
+    private void ToggleStartWithWindows()
+    {
+        try
+        {
+            var enable =
+                !StartupService.IsEnabled();
+
+            StartupService.SetEnabled(
+                enable);
+
+            _startWithWindows.Checked =
+                StartupService.IsEnabled();
+        }
+        catch (Exception ex)
+        {
+            CrashLogService.Log(
+                ex,
+                "Changing Start with Windows setting");
+
+            RefreshStartWithWindowsState();
+
+            _notifyIcon.ShowBalloonTip(
+                4000,
+                "SmoothFolder",
+                "Could not change the Start with Windows setting.",
+                ToolTipIcon.Warning);
+        }
+    }
+
+    private void RefreshStartWithWindowsState()
+    {
+        _startWithWindows.Checked =
+            StartupService.IsEnabled();
     }
 
     private static Icon LoadApplicationIcon()

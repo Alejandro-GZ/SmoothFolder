@@ -423,34 +423,12 @@ public sealed class GpuGlassBackdropService : IDisposable
         _effectBrush =
             effectFactory.CreateBrush();
 
-        var descriptorDiagnostics =
-            blur.TakeDiagnostics();
-
-        var beforeStatus =
-            _effectBrush.Properties.TryGetScalar(
-                BlurPropertyPath,
-                out var beforeValue);
-
-        // Do not rely only on the descriptor value captured while the effect
-        // factory is compiled. Expose the blur standard deviation as a
-        // Composition property and set it explicitly on this brush instance.
-        // This makes runtime/material tuning deterministic.
+        // Expose the Direct2D standard deviation as a Composition property and
+        // set it explicitly on this brush instance. This keeps the material
+        // tunable without rebuilding the effect graph.
         _effectBrush.Properties.InsertScalar(
             BlurPropertyPath,
             BlurAmount);
-
-        var afterStatus =
-            _effectBrush.Properties.TryGetScalar(
-                BlurPropertyPath,
-                out var afterValue);
-
-        CrashLogService.LogMessage(
-            "GPU blur property diagnostics",
-            $"Requested={BlurAmount:0.###}; " +
-            $"descriptor.BlurAmount={blur.BlurAmount:0.###}; " +
-            $"brush-before: status={beforeStatus}, value={beforeValue:0.###}; " +
-            $"brush-after: status={afterStatus}, value={afterValue:0.###}. " +
-            $"Descriptor callbacks: {descriptorDiagnostics}");
 
         _initializationStage = "creating raw BackdropBrush";
 

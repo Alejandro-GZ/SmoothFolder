@@ -36,12 +36,6 @@ internal sealed class GaussianBlurEffectDescriptor :
     // D2D1_BORDER_MODE_HARD
     private const uint BorderModeHard = 1;
 
-    private readonly object _diagnosticsSync =
-        new();
-
-    private readonly List<string> _diagnostics =
-        new();
-
     private string _name =
         "SmoothFolderGaussianBlur";
 
@@ -55,38 +49,14 @@ internal sealed class GaussianBlurEffectDescriptor :
 
     public float BlurAmount { get; set; } = 3.0f;
 
-    public Guid EffectId
-    {
-        get
-        {
-            RecordDiagnostic(
-                $"EffectId -> {GaussianBlurEffectId}");
+    public Guid EffectId =>
+        GaussianBlurEffectId;
 
-            return GaussianBlurEffectId;
-        }
-    }
+    public uint PropertyCount =>
+        3;
 
-    public uint PropertyCount
-    {
-        get
-        {
-            RecordDiagnostic(
-                "PropertyCount -> 3");
-
-            return 3;
-        }
-    }
-
-    public uint SourceCount
-    {
-        get
-        {
-            RecordDiagnostic(
-                "SourceCount -> 1");
-
-            return 1;
-        }
-    }
+    public uint SourceCount =>
+        1;
 
     public uint GetNamedPropertyMapping(
         string name,
@@ -100,10 +70,6 @@ internal sealed class GaussianBlurEffectDescriptor :
                 nameof(BlurAmount),
                 StringComparison.Ordinal))
         {
-            RecordDiagnostic(
-                $"GetNamedPropertyMapping('{name}') -> " +
-                $"index={StandardDeviationProperty}, mapping={mapping}");
-
             return StandardDeviationProperty;
         }
 
@@ -112,10 +78,6 @@ internal sealed class GaussianBlurEffectDescriptor :
                 "Optimization",
                 StringComparison.Ordinal))
         {
-            RecordDiagnostic(
-                $"GetNamedPropertyMapping('{name}') -> " +
-                $"index={OptimizationProperty}, mapping={mapping}");
-
             return OptimizationProperty;
         }
 
@@ -124,116 +86,45 @@ internal sealed class GaussianBlurEffectDescriptor :
                 "BorderMode",
                 StringComparison.Ordinal))
         {
-            RecordDiagnostic(
-                $"GetNamedPropertyMapping('{name}') -> " +
-                $"index={BorderModeProperty}, mapping={mapping}");
-
             return BorderModeProperty;
         }
 
         mapping =
             GraphicsEffectPropertyMapping.Unknown;
 
-        RecordDiagnostic(
-            $"GetNamedPropertyMapping('{name}') -> unknown");
-
         throw new ArgumentException(
             $"Unknown graphics-effect property '{name}'.",
             nameof(name));
     }
 
-    public object GetProperty(uint index)
-    {
-        switch (index)
+    public object GetProperty(uint index) =>
+        index switch
         {
-            case StandardDeviationProperty:
-                RecordDiagnostic(
-                    $"GetProperty({index}) -> " +
-                    $"StandardDeviation={BlurAmount:0.###}");
+            StandardDeviationProperty =>
+                PropertyValue.CreateSingle(
+                    BlurAmount),
 
-                return PropertyValue.CreateSingle(
-                    BlurAmount);
+            OptimizationProperty =>
+                PropertyValue.CreateUInt32(
+                    OptimizationQuality),
 
-            case OptimizationProperty:
-                RecordDiagnostic(
-                    $"GetProperty({index}) -> " +
-                    $"Optimization={OptimizationQuality}");
+            BorderModeProperty =>
+                PropertyValue.CreateUInt32(
+                    BorderModeHard),
 
-                return PropertyValue.CreateUInt32(
-                    OptimizationQuality);
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(index))
+        };
 
-            case BorderModeProperty:
-                RecordDiagnostic(
-                    $"GetProperty({index}) -> " +
-                    $"BorderMode={BorderModeHard}");
-
-                return PropertyValue.CreateUInt32(
-                    BorderModeHard);
-
-            default:
-                RecordDiagnostic(
-                    $"GetProperty({index}) -> out of range");
-
-                throw new ArgumentOutOfRangeException(
-                    nameof(index));
-        }
-    }
-
-    public IGraphicsEffectSource GetSource(uint index)
-    {
-        if (index == 0 &&
-            Source is not null)
+    public IGraphicsEffectSource GetSource(uint index) =>
+        index switch
         {
-            RecordDiagnostic(
-                "GetSource(0) -> Backdrop source");
+            0 when Source is not null => Source,
 
-            return Source;
-        }
+            0 => throw new InvalidOperationException(
+                "Gaussian blur source has not been assigned."),
 
-        if (index == 0)
-        {
-            RecordDiagnostic(
-                "GetSource(0) -> source is null");
-
-            throw new InvalidOperationException(
-                "Gaussian blur source has not been assigned.");
-        }
-
-        RecordDiagnostic(
-            $"GetSource({index}) -> out of range");
-
-        throw new ArgumentOutOfRangeException(
-            nameof(index));
-    }
-
-    public string TakeDiagnostics()
-    {
-        lock (_diagnosticsSync)
-        {
-            if (_diagnostics.Count == 0)
-                return "(no descriptor callbacks recorded)";
-
-            var result =
-                string.Join(
-                    " | ",
-                    _diagnostics);
-
-            _diagnostics.Clear();
-
-            return result;
-        }
-    }
-
-    private void RecordDiagnostic(
-        string message)
-    {
-        lock (_diagnosticsSync)
-        {
-            // Effect-factory creation is a one-time operation, but keep this
-            // bounded in case a future Windows build queries properties more
-            // aggressively.
-            if (_diagnostics.Count < 48)
-                _diagnostics.Add(message);
-        }
-    }
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(index))
+        };
 }
