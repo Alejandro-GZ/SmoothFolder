@@ -9,7 +9,8 @@
         WindowStartupLocation="CenterScreen"
         AllowsTransparency="True"
         Background="Transparent">
-    <Border Padding="20"
+    <Border x:Name="PromptCard"
+            Padding="20"
             CornerRadius="22"
             Background="#B8141A22"
             BorderBrush="#55FFFFFF"

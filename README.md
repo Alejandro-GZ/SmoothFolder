@@ -67,6 +67,7 @@ Requirements:
 
 - Windows 11
 - .NET 10 SDK
+- Windows SDK projection support (`net10.0-windows10.0.19041.0`)
 - PowerShell or another terminal
 
 ```powershell
@@ -80,7 +81,7 @@ dotnet run
 The regular Release output is created under:
 
 ```text
-bin\Release\net10.0-windows\
+bin\Release\net10.0-windows10.0.19041.0\
 ```
 
 ## Usage
@@ -117,9 +118,72 @@ Right-click folder → Glass tint...
 
 to select a preset or custom hexadecimal color and change the tint strength.
 
-The current renderer uses per-pixel transparency, layered highlights, rounded
-surfaces, and a configurable tint. A stronger background-blur implementation is
-planned once it can be added without compromising the clean rounded silhouette.
+The renderer uses per-pixel transparency, layered highlights, rounded surfaces,
+and a configurable tint.
+
+The main folder popup uses a live GPU backdrop based on the system
+`Windows.UI.Composition` visual layer. A small `WS_EX_NOREDIRECTIONBITMAP`
+helper HWND sits directly behind the WPF glass card and hosts a raw
+`BackdropBrush` processed by a native Direct2D Gaussian blur effect descriptor.
+`HostBackdropBrush` is deliberately not used for the tunable material because
+Windows applies its own fixed security blur to that source, masking changes to
+the app's Gaussian standard deviation. The compositor performs the only blur
+stage continuously on the GPU; SmoothFolder no longer captures the desktop,
+runs a CPU box blur, or maintains a 40 FPS refresh timer.
+
+The composition visual is clipped with a rounded `RectangleClip` matching the
+inner WPF card. WPF remains responsible for tint, highlights, border, icons and
+text, while the composition helper contributes only the live blurred backdrop.
+
+The Win32 composition target is obtained through C#/WinRT COM interop
+(`Compositor.As<ICompositorDesktopInterop>()`) using ABI-only parameters. Legacy
+direct CLR casts from `Compositor` to `ICompositorDesktopInterop` are not used,
+because they fail on modern .NET/C#/WinRT projections.
+
+The local `IGraphicsEffectD2D1Interop` projection follows the native
+`windows.graphics.effects.interop.h` ABI exactly: `GetNamedPropertyMapping`
+receives an `LPCWSTR`, effect properties are returned as `IPropertyValue*`, and
+the COM vtable order is `GetEffectId`, `GetNamedPropertyMapping`,
+`GetPropertyCount`, `GetProperty`, `GetSource`, `GetSourceCount`. The native
+header declaration, rather than the ordering of methods on documentation index
+pages, is treated as the ABI authority.
+The projected interface follows the C#/WinRT custom-interface layout directly:
+`WindowsRuntimeHelperType` points back to the projected interface itself, and
+that interface owns a public nested `Vftbl` containing
+`AbiToProjectionVftablePtr`. This is the layout C#/WinRT reflects when it
+creates a CCW for the managed effect descriptor.
+The .NET Windows SDK keeps `IPropertyValue` itself internal, so effect-property
+marshalling uses its native IID (`4BD682DD-7554-40E9-9A9B-82654EDE7E62`) via
+`QueryInterface` rather than referencing the inaccessible projected type.
+During open/close animations SmoothFolder synchronizes only the helper geometry
+with the transformed WPF card; while dragging, the live host backdrop updates
+automatically as the helper window moves.
+
+The default GPU material deliberately separates blur from tint: Direct2D
+Gaussian blur uses a light 3 DIP standard deviation (roughly a 9 DIP kernel
+radius), while the WPF tint contribution is reduced when the GPU backdrop is
+active so vivid wallpapers keep recognizable structure. Its
+`Blur.BlurAmount` property is registered as animatable when the effect factory
+is created and is then written explicitly through
+`CompositionEffectBrush.Properties`. During the current blur validation phase,
+SmoothFolder also records a bounded one-time diagnostic showing which effect
+properties Composition queried, the value returned for Direct2D standard
+deviation, and `TryGetScalar` readback before/after `InsertScalar`. This lets the
+property path be verified independently from the visual result. The descriptor exposes the complete three-property Direct2D
+Gaussian Blur surface
+(`StandardDeviation`, `Optimization`, and `BorderMode`) because Composition
+queries the native property table when creating the effect factory. SmoothFolder
+describes that effect through the standard `Windows.Graphics.Effects` contract
+and carries a small local C#/WinRT projection for
+`IGraphicsEffectD2D1Interop`, which the Windows SDK exposes as a native-only
+interface. This avoids activating an external WinRT graphics runtime class and
+therefore avoids package-registration requirements in the unpackaged WPF
+process. The helper
+window remains expanded beyond the visible card bounds so the Gaussian kernel
+can sample outside the border and avoid edge artifacts. If GPU composition
+initialization fails or High Contrast mode is active, SmoothFolder falls back
+to the existing translucent WPF renderer.
+
 
 ## Background behavior
 
@@ -254,7 +318,8 @@ Near-term priorities:
 
 1. Extend Explorer compatibility profiles as new Windows layouts are observed.
 2. Refine touchpad/touch page gestures and cross-page reorder polish.
-3. Improved glass blur while preserving transparent rounded corners.
+3. Refine GPU glass material tuning (blur, saturation and tint) and evaluate
+   whether compact desktop tiles should share the composition material.
 4. Startup-with-Windows support.
 5. Steam/Epic library import and higher-quality artwork fallbacks.
 

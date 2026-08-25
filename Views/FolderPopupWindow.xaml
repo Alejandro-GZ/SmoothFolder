@@ -43,26 +43,31 @@
         <Border x:Name="PopupCard"
                 Grid.Row="1"
                 CornerRadius="30"
-                BorderBrush="#70FFFFFF"
+                BorderBrush="#58FFFFFF"
                 BorderThickness="1">
             <Grid>
+                <Border x:Name="TintLayer"
+                        Margin="1"
+                        CornerRadius="29"
+                        IsHitTestVisible="False"/>
+
                 <!-- Layered highlights make the translucent tint read as glass. -->
                 <Border Margin="1"
                         CornerRadius="29"
                         IsHitTestVisible="False">
                     <Border.Background>
                         <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                            <GradientStop Color="#32FFFFFF" Offset="0"/>
-                            <GradientStop Color="#14FFFFFF" Offset="0.30"/>
-                            <GradientStop Color="#05000000" Offset="0.62"/>
-                            <GradientStop Color="#16000000" Offset="1"/>
+                            <GradientStop Color="#18FFFFFF" Offset="0"/>
+                            <GradientStop Color="#08FFFFFF" Offset="0.30"/>
+                            <GradientStop Color="#03FFFFFF" Offset="0.62"/>
+                            <GradientStop Color="#02FFFFFF" Offset="1"/>
                         </LinearGradientBrush>
                     </Border.Background>
                 </Border>
 
                 <Border Margin="1"
                         CornerRadius="29"
-                        BorderBrush="#32FFFFFF"
+                        BorderBrush="#24FFFFFF"
                         BorderThickness="1"
                         IsHitTestVisible="False"/>
 

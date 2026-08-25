@@ -19,7 +19,10 @@ public partial class PromptDialog : Window
             ValueBox.SelectAll();
         };
 
-        SourceInitialized += (_, _) => WindowEffects.ApplyPopupEffects(this, 22);
+        SourceInitialized += (_, _) =>
+            WindowEffects.ApplyPopupEffects(
+                this,
+                22);
     }
 
     public static string? Show(string prompt, string current)

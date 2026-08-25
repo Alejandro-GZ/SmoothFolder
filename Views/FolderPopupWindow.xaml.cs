@@ -29,6 +29,7 @@ public partial class FolderPopupWindow : Window
     private readonly Action _refreshTile;
     private readonly System.Windows.Threading.DispatcherTimer _dragPageTimer;
 
+    private GpuGlassBackdropService? _glassBackdrop;
     private bool _isClosing;
     private bool _allowClose;
     private bool _internalDragInProgress;
@@ -71,7 +72,26 @@ public partial class FolderPopupWindow : Window
         Loaded += (_, _) => RefreshItems();
 
         Closing += OnClosing;
-        SourceInitialized += (_, _) => WindowEffects.ApplyPopupEffects(this, 30);
+        Closed += (_, _) =>
+        {
+            _glassBackdrop?.Dispose();
+            _glassBackdrop = null;
+        };
+
+        SourceInitialized += (_, _) =>
+        {
+            WindowEffects.ApplyPopupEffects(
+                this,
+                30);
+
+            _glassBackdrop =
+                GpuGlassBackdropService.TryCreate(
+                    this,
+                    PopupCard,
+                    30);
+
+            ApplyGlassAppearance();
+        };
 
         PreviewKeyDown += OnPreviewKeyDown;
         PreviewMouseWheel += OnPreviewMouseWheel;
@@ -197,6 +217,7 @@ public partial class FolderPopupWindow : Window
         _ = MonitorService.PositionWindowPixels(
             this,
             new ScreenPixelPoint(left, top));
+
     }
 
     public void RepositionForCurrentMonitor()
@@ -205,6 +226,7 @@ public partial class FolderPopupWindow : Window
             return;
 
         PositionNearAnchorPixels();
+        _glassBackdrop?.Synchronize();
     }
 
     public void RequestClose()
@@ -1087,13 +1109,18 @@ public partial class FolderPopupWindow : Window
         e.Handled = true;
     }
 
-    private void DragHandle_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    private void DragHandle_MouseLeftButtonDown(
+        object sender,
+        MouseButtonEventArgs e)
     {
         if (e.ChangedButton != MouseButton.Left)
             return;
 
         try
         {
+            // HostBackdropBrush is live. Moving the popup only moves the helper
+            // HWND; no capture, blur or bitmap refresh is performed on the UI
+            // thread during DragMove.
             DragMove();
         }
         catch (InvalidOperationException)
@@ -1104,10 +1131,14 @@ public partial class FolderPopupWindow : Window
 
     private void ApplyGlassAppearance()
     {
-        PopupCard.Background = GlassAppearanceService.CreateTintBrush(
-            _folder.GlassTint,
-            _folder.GlassOpacity,
-            opacityScale: 0.78);
+        TintLayer.Background =
+            GlassAppearanceService.CreateTintBrush(
+                _folder.GlassTint,
+                _folder.GlassOpacity,
+                opacityScale:
+                    _glassBackdrop?.IsActive == true
+                        ? 0.28
+                        : 0.78);
     }
 
     private void AnimateOpen()
@@ -1122,6 +1153,8 @@ public partial class FolderPopupWindow : Window
         scale.ScaleY = 0.18;
         translate.X = travel.X;
         translate.Y = travel.Y;
+
+        _glassBackdrop?.BeginAnimationTracking();
 
         var spring = new BackEase
         {
@@ -1144,12 +1177,24 @@ public partial class FolderPopupWindow : Window
                 EasingFunction = spring
             });
 
-        scale.BeginAnimation(
-            ScaleTransform.ScaleYProperty,
-            new DoubleAnimation(0.18, 1, TimeSpan.FromMilliseconds(310))
+        var scaleYAnimation =
+            new DoubleAnimation(
+                0.18,
+                1,
+                TimeSpan.FromMilliseconds(310))
             {
                 EasingFunction = spring
-            });
+            };
+
+        scaleYAnimation.Completed += (_, _) =>
+        {
+            if (!_isClosing)
+                _glassBackdrop?.EndAnimationTracking();
+        };
+
+        scale.BeginAnimation(
+            ScaleTransform.ScaleYProperty,
+            scaleYAnimation);
 
         translate.BeginAnimation(
             TranslateTransform.XProperty,
@@ -1174,6 +1219,8 @@ public partial class FolderPopupWindow : Window
             return;
         }
 
+        _glassBackdrop?.BeginAnimationTracking();
+
         // Recalculate here instead of reusing the opening vector. The popup or
         // the desktop folder may have moved while the folder was open.
         var travel = GetAnchorTravel();
@@ -1183,7 +1230,11 @@ public partial class FolderPopupWindow : Window
         {
             EasingFunction = ease
         };
-        fade.Completed += (_, _) => completed();
+        fade.Completed += (_, _) =>
+        {
+            _glassBackdrop?.Hide();
+            completed();
+        };
 
         BeginAnimation(OpacityProperty, fade);
 

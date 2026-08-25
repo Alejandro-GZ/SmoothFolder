@@ -19,7 +19,10 @@ public partial class GlassTintDialog : Window
         _ready = true;
         UpdatePreview();
 
-        SourceInitialized += (_, _) => WindowEffects.ApplyPopupEffects(this, 26);
+        SourceInitialized += (_, _) =>
+            WindowEffects.ApplyPopupEffects(
+                this,
+                26);
     }
 
     public string SelectedTint => GlassAppearanceService.NormalizeHex(HexBox.Text);
