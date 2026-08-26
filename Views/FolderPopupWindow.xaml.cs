@@ -2561,24 +2561,64 @@ public partial class FolderPopupWindow : Window
         e.Handled = true;
     }
 
-    private void DragHandle_MouseLeftButtonDown(
+    private void PopupSurface_PreviewMouseLeftButtonDown(
         object sender,
         MouseButtonEventArgs e)
     {
-        if (e.ChangedButton != MouseButton.Left)
+        if (e.ChangedButton != MouseButton.Left ||
+            e.StylusDevice is not null ||
+            _internalDragInProgress ||
+            _endingInternalDrag ||
+            IsPopupDragBlocked(
+                e.OriginalSource as DependencyObject))
+        {
             return;
+        }
 
-        try
+        CancelPageGesture();
+
+        if (WindowDragService.BeginMove(
+                this))
         {
-            // HostBackdropBrush is live. Moving the popup only moves the helper
-            // HWND; no capture, blur or bitmap refresh is performed on the UI
-            // thread during DragMove.
-            DragMove();
+            e.Handled = true;
         }
-        catch (InvalidOperationException)
+    }
+
+    private bool IsPopupDragBlocked(
+        DependencyObject? source)
+    {
+        var current =
+            source;
+
+        while (current is not null &&
+               !ReferenceEquals(
+                   current,
+                   PopupRoot))
         {
-            // The button can be released between the mouse event and DragMove.
+            if (ReferenceEquals(
+                    current,
+                    PageIndicators))
+            {
+                return true;
+            }
+
+            if (current is FrameworkElement
+                {
+                    Tag: AppItem
+                })
+            {
+                return true;
+            }
+
+            current =
+                current is Visual
+                    ? VisualTreeHelper.GetParent(
+                        current)
+                    : LogicalTreeHelper.GetParent(
+                        current);
         }
+
+        return false;
     }
 
     private void OnSettingsChanged(

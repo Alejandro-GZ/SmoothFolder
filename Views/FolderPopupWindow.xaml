@@ -13,7 +13,9 @@
         SnapsToDevicePixels="True">
     <Grid x:Name="PopupRoot"
           Margin="1"
-          RenderTransformOrigin="0.5,0.5">
+          Background="Transparent"
+          RenderTransformOrigin="0.5,0.5"
+          PreviewMouseLeftButtonDown="PopupSurface_PreviewMouseLeftButtonDown">
         <Grid.RenderTransform>
             <TransformGroup>
                 <ScaleTransform ScaleX="1" ScaleY="1"/>
@@ -29,15 +31,20 @@
         <!-- iOS-style folder title: outside the glass surface, top-left. -->
         <Border Grid.Row="0"
                 Background="Transparent"
-                Margin="12,0,0,2"
-                Cursor="SizeAll"
-                MouseLeftButtonDown="DragHandle_MouseLeftButtonDown">
+                Margin="12,0,0,2">
             <TextBlock x:Name="TitleText"
                        FontFamily="{DynamicResource UiFontFamily}"
                        FontSize="22"
                        FontWeight="SemiBold"
                        Foreground="{DynamicResource TextPrimaryBrush}"
-                       VerticalAlignment="Center"/>
+                       VerticalAlignment="Center">
+                <TextBlock.Effect>
+                    <DropShadowEffect Color="#D9000000"
+                                      BlurRadius="7"
+                                      ShadowDepth="1"
+                                      Opacity="0.88"/>
+                </TextBlock.Effect>
+            </TextBlock>
         </Border>
 
         <Border x:Name="PopupCard"

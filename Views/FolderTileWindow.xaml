@@ -44,6 +44,13 @@
                    HorizontalAlignment="Center"
                    VerticalAlignment="Top"
                    TextTrimming="CharacterEllipsis"
-                   MaxWidth="108"/>
+                   MaxWidth="108">
+            <TextBlock.Effect>
+                <DropShadowEffect Color="#D9000000"
+                                  BlurRadius="5"
+                                  ShadowDepth="1"
+                                  Opacity="0.88"/>
+            </TextBlock.Effect>
+        </TextBlock>
     </Grid>
 </Window>
