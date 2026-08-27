@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
 using SmoothFolder.Models;
+using SmoothFolder.Native;
 using SmoothFolder.Services;
 
 namespace SmoothFolder.Views;
@@ -11,14 +12,14 @@ public partial class SettingsWindow : Window
 {
     private readonly SettingsService _settings;
     private readonly DispatcherTimer _saveTimer;
+    private GpuGlassBackdropService? _glassBackdrop;
     private bool _initializing;
 
     public SettingsWindow(
         SettingsService settings)
     {
-        // Slider.ValueChanged can fire during InitializeComponent (for example
-        // when SaturationSlider.Minimum coerces the default value). Initialize
-        // dependencies and enable the guard before XAML construction.
+        // Slider.ValueChanged can fire during InitializeComponent. Initialize
+        // dependencies and enable the guard before constructing the XAML tree.
         _settings =
             settings;
 
@@ -42,8 +43,35 @@ public partial class SettingsWindow : Window
                 SaveSettings();
             };
 
+        SourceInitialized +=
+            (_, _) =>
+            {
+                WindowEffects.ApplyPopupEffects(
+                    this,
+                    30);
+
+                _glassBackdrop =
+                    GpuGlassBackdropService.TryCreate(
+                        this,
+                        SettingsCard,
+                        30);
+
+                ApplyWindowMaterial();
+
+                _glassBackdrop?.Show();
+                _glassBackdrop?.SynchronizeImmediately();
+            };
+
         Closing +=
             OnClosing;
+
+        Closed +=
+            (_, _) =>
+            {
+                _glassBackdrop?.Dispose();
+                _glassBackdrop =
+                    null;
+            };
 
         LoadCurrentSettings();
     }
@@ -71,8 +99,8 @@ public partial class SettingsWindow : Window
                 StartupService.IsEnabled();
 
             RefreshAppearanceLabels();
-            StatusText.Text =
-                string.Empty;
+
+            ApplyWindowMaterial();
         }
         finally
         {
@@ -95,7 +123,38 @@ public partial class SettingsWindow : Window
             TintSlider.Value,
             SaturationSlider.Value);
 
+        ApplyWindowMaterial();
         RestartSaveTimer();
+    }
+
+    private void ApplyWindowMaterial()
+    {
+        if (SettingsTintLayer is null)
+            return;
+
+        var appearance =
+            _settings.Current.Appearance;
+
+        _glassBackdrop?.UpdateMaterial(
+            appearance.BlurAmount,
+            appearance.Saturation);
+
+        var opacityScale =
+            _glassBackdrop?.IsActive == true
+                ? appearance.TintStrength
+                : Math.Clamp(
+                    appearance.TintStrength *
+                    (0.78 / 0.28),
+                    0.0,
+                    1.0);
+
+        SettingsTintLayer.Background =
+            GlassAppearanceService.CreateTintBrush(
+                "#242A34",
+                0.72,
+                opacityScale);
+
+        _glassBackdrop?.SynchronizeImmediately();
     }
 
     private void RefreshAppearanceLabels()
@@ -122,8 +181,6 @@ public partial class SettingsWindow : Window
         _saveTimer.Stop();
         _saveTimer.Start();
 
-        StatusText.Text =
-            "Saved automatically";
     }
 
     private void SaveSettings()
@@ -138,8 +195,6 @@ public partial class SettingsWindow : Window
                 ex,
                 "Saving SmoothFolder settings");
 
-            StatusText.Text =
-                "Could not save settings. Check the SmoothFolder log for details.";
         }
     }
 
@@ -159,11 +214,6 @@ public partial class SettingsWindow : Window
             StartWithWindowsToggle.IsChecked =
                 StartupService.IsEnabled();
 
-            StatusText.Text =
-                StartWithWindowsToggle.IsChecked ==
-                true
-                    ? "SmoothFolder will start with Windows."
-                    : "SmoothFolder will not start with Windows.";
         }
         catch (Exception ex)
         {
@@ -174,8 +224,6 @@ public partial class SettingsWindow : Window
             StartWithWindowsToggle.IsChecked =
                 StartupService.IsEnabled();
 
-            StatusText.Text =
-                "Could not change the Start with Windows setting.";
         }
     }
 
@@ -206,6 +254,7 @@ public partial class SettingsWindow : Window
         }
 
         _settings.ResetAppearance();
+        ApplyWindowMaterial();
         RestartSaveTimer();
     }
 
@@ -219,13 +268,11 @@ public partial class SettingsWindow : Window
             return;
         }
 
-        try
+        if (WindowDragService.BeginMove(
+                this))
         {
-            DragMove();
-        }
-        catch (InvalidOperationException)
-        {
-            // The button may be released between the event and DragMove().
+            e.Handled =
+                true;
         }
     }
 
