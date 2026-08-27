@@ -85,6 +85,8 @@ jobs:
         shell: bash
         run: |
           tag="${GITHUB_REF_NAME}"
+          policy_url="https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_SHA}/CODE_SIGNING.md"
+          policy_note="Code signing policy: ${policy_url}"
 
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" dist/*.zip dist/SHA256SUMS.txt --clobber
@@ -93,5 +95,6 @@ jobs:
               dist/*.zip \
               dist/SHA256SUMS.txt \
               --title "SmoothFolder $tag" \
+              --notes "$policy_note" \
               --generate-notes
           fi

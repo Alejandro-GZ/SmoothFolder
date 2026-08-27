@@ -339,6 +339,11 @@ The workflow:
 3. generates SHA-256 checksums;
 4. creates a GitHub Release with automatically generated release notes.
 
+## Code signing policy
+
+See the [Code signing policy](CODE_SIGNING.md) for SmoothFolder's SignPath
+Foundation signing, privacy, team-role, and release-approval requirements.
+
 ## Current limitations
 
 - Desktop hosting uses undocumented Explorer internals (`Progman`, `WorkerW`
