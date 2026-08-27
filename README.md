@@ -400,3 +400,8 @@ SmoothFolder/
 
 SmoothFolder is an early-stage Windows desktop customization project. APIs and
 configuration formats may change while the interaction model is being refined.
+
+## License
+
+SmoothFolder is licensed under the Apache License 2.0.
+See [LICENSE](LICENSE) for details.
