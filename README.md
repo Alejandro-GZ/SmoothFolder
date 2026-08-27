@@ -8,9 +8,9 @@ SmoothFolder is designed to stay out of the way: it runs as a background GUI
 process, creates no console window, and its folder UI is excluded from the
 Windows taskbar and Alt+Tab/task-switcher surfaces.
 
-> SmoothFolder is currently under active development. The core folder experience
-> is usable, while deeper desktop-shell integration and additional polish are
-> still planned.
+> SmoothFolder is feature-complete for its current scope. The core desktop-folder
+> experience is implemented and future work is focused on signing, compatibility,
+> bug fixes, accessibility, and polish rather than major feature expansion.
 
 ## Features
 
@@ -346,41 +346,35 @@ Foundation signing, privacy, team-role, and release-approval requirements.
 
 ## Current limitations
 
-- Desktop hosting uses undocumented Explorer internals (`Progman`, `WorkerW`
-  and `SHELLDLL_DefView`) and may need compatibility adjustments on future
-  Windows builds or with third-party desktop replacements.
-- Desktop hosting still relies on Explorer implementation details, so future
-  Windows builds may require additional host-discovery compatibility rules.
+- Desktop hosting relies on undocumented Explorer internals (`Progman`,
+  `WorkerW`, and `SHELLDLL_DefView`). Future Windows builds or third-party
+  desktop replacements may require compatibility adjustments.
 - Monitor-relative tile positions are persisted by display device name. If a
   previously used display is disconnected, the tile falls back to an available
   work area and is remapped on the next successful placement.
-- There is no automatic Steam/Epic library importer yet.
+- Automatic Steam/Epic library discovery is outside the current product scope.
+  Steam, Epic, and other launcher shortcuts remain supported through the normal
+  drag-and-drop workflow.
 
-## Roadmap
+## Maintenance and future work
 
-The core desktop-folder experience is now in place:
+SmoothFolder's planned feature set is implemented. Ongoing work is intentionally
+focused on maintaining and polishing the existing experience rather than adding
+large new subsystems.
 
-- Live GPU glass material shared by popup and compact desktop tiles.
-- Reusable iOS-inspired context menus.
-- iOS-like lifted app reorder with live slot displacement.
-- Cross-page app drag while keeping the lifted icon attached to the pointer.
-- Touch and precision-touchpad horizontal page gestures with proportional
-  movement, edge resistance and snapping.
-- Stable desktop/WorkerW integration, Explorer recovery and multi-monitor
-  per-monitor-DPI positioning.
-- Start-with-Windows support and live appearance settings.
+Current priorities:
 
-Near-term priorities:
+1. Complete trusted code signing for official Windows release builds.
+2. Maintain Explorer desktop-host compatibility as Windows evolves.
+3. Improve accessibility, keyboard navigation, and touch interaction where
+   needed.
+4. Refine icon/artwork fallbacks and visual polish.
+5. Fix bugs, regressions, and performance issues reported against the existing
+   feature set.
 
-1. Add Steam library import with installed-game discovery and native Steam
-   launch URLs.
-2. Add Epic Games library import using the same provider metadata model.
-3. Improve imported-game artwork/icon fallbacks where launcher metadata does
-   not expose a high-quality icon.
-4. Continue extending Explorer desktop-layout compatibility profiles as new
-   Windows builds and shell layouts are observed.
-5. Polish accessibility, keyboard navigation and touch interaction across the
-   custom menus and import dialogs.
+Large launcher integrations such as automatic Steam or Epic library import are
+not currently planned. The existing shortcut-based workflow remains the
+supported way to add applications from those launchers.
 
 ## Project structure
 
@@ -398,8 +392,10 @@ SmoothFolder/
 
 ## Status
 
-SmoothFolder is an early-stage Windows desktop customization project. APIs and
-configuration formats may change while the interaction model is being refined.
+SmoothFolder is feature-complete for its current scope and is transitioning into
+a maintenance-focused phase. The project remains open to compatibility fixes,
+bug fixes, accessibility improvements, and targeted polish, but major feature
+expansion is not part of the current roadmap.
 
 ## License
 
