@@ -1,104 +1,166 @@
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
-using System.Windows.Forms;
+using System.Windows.Controls;
+using Forms = System.Windows.Forms;
 
 namespace SmoothFolder.Services;
 
 public sealed class TrayIconService : IDisposable
 {
-    private readonly NotifyIcon _notifyIcon;
+    private readonly Forms.NotifyIcon _notifyIcon;
     private readonly Icon _icon;
-    private readonly ToolStripMenuItem _startWithWindows;
+    private readonly Action _openSettings;
+    private readonly Action _exitApplication;
+
+    private ContextMenu? _trayMenu;
 
     public TrayIconService(
         Action openSettings,
         Action exitApplication)
     {
-        _icon = LoadApplicationIcon();
+        _openSettings =
+            openSettings;
 
-        var menu = new ContextMenuStrip();
+        _exitApplication =
+            exitApplication;
 
-        var settings =
-            new ToolStripMenuItem("Settings...");
+        _icon =
+            LoadApplicationIcon();
 
-        settings.Click +=
-            (_, _) =>
-                DispatchToWpf(
-                    openSettings);
-
-        var openDataFolder = new ToolStripMenuItem("Open data folder");
-        openDataFolder.Click += (_, _) => OpenDataFolder();
-
-        _startWithWindows =
-            new ToolStripMenuItem("Start with Windows")
+        _notifyIcon =
+            new Forms.NotifyIcon
             {
-                CheckOnClick = false,
-                Checked = StartupService.IsEnabled()
+                Text =
+                    "SmoothFolder",
+                Icon =
+                    _icon,
+                Visible =
+                    true
             };
 
-        _startWithWindows.Click +=
-            (_, _) => ToggleStartWithWindows();
-
-        menu.Opening +=
-            (_, _) => RefreshStartWithWindowsState();
-
-        var exit = new ToolStripMenuItem("Exit SmoothFolder");
-        exit.Click += (_, _) =>
-        {
-            System.Windows.Application.Current.Dispatcher.BeginInvoke(
-                exitApplication);
-        };
-
-        menu.Items.Add(settings);
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(openDataFolder);
-        menu.Items.Add(_startWithWindows);
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(exit);
-
-        _notifyIcon = new NotifyIcon
-        {
-            Text = "SmoothFolder",
-            Icon = _icon,
-            ContextMenuStrip = menu,
-            Visible = true
-        };
+        _notifyIcon.MouseUp +=
+            OnTrayMouseUp;
 
         _notifyIcon.DoubleClick +=
             (_, _) =>
                 DispatchToWpf(
-                    openSettings);
+                    _openSettings);
     }
 
     public void Dispose()
     {
-        _notifyIcon.Visible = false;
-        _notifyIcon.ContextMenuStrip?.Dispose();
+        if (_trayMenu is not null)
+        {
+            _trayMenu.IsOpen =
+                false;
+
+            _trayMenu =
+                null;
+        }
+
+        _notifyIcon.MouseUp -=
+            OnTrayMouseUp;
+
+        _notifyIcon.Visible =
+            false;
+
         _notifyIcon.Dispose();
         _icon.Dispose();
+    }
+
+    private void OnTrayMouseUp(
+        object? sender,
+        Forms.MouseEventArgs e)
+    {
+        if (e.Button !=
+            Forms.MouseButtons.Right)
+        {
+            return;
+        }
+
+        DispatchToWpf(
+            ShowTrayMenu);
+    }
+
+    private void ShowTrayMenu()
+    {
+        if (_trayMenu is not null)
+        {
+            _trayMenu.IsOpen =
+                false;
+        }
+
+        var menu =
+            IosContextMenuService.Create();
+
+        menu.Items.Add(
+            IosContextMenuService.Item(
+                "Settings...",
+                _openSettings));
+
+        menu.Items.Add(
+            IosContextMenuService.Separator());
+
+        menu.Items.Add(
+            IosContextMenuService.Item(
+                "Open data folder",
+                OpenDataFolder));
+
+        var startupEnabled =
+            StartupService.IsEnabled();
+
+        menu.Items.Add(
+            IosContextMenuService.Item(
+                startupEnabled
+                    ? "Start with Windows  ✓"
+                    : "Start with Windows",
+                ToggleStartWithWindows));
+
+        menu.Items.Add(
+            IosContextMenuService.Separator());
+
+        menu.Items.Add(
+            IosContextMenuService.Item(
+                "Exit SmoothFolder",
+                _exitApplication,
+                destructive:
+                    true));
+
+        menu.Closed +=
+            (_, _) =>
+            {
+                if (ReferenceEquals(
+                        _trayMenu,
+                        menu))
+                {
+                    _trayMenu =
+                        null;
+                }
+            };
+
+        _trayMenu =
+            menu;
+
+        menu.IsOpen =
+            true;
     }
 
     private static void DispatchToWpf(
         Action action)
     {
         _ =
-            System.Windows.Application.Current.Dispatcher.BeginInvoke(
-                action);
+            System.Windows.Application.Current
+                .Dispatcher.BeginInvoke(
+                    action);
     }
 
     private void ToggleStartWithWindows()
     {
         try
         {
-            var enable =
-                !StartupService.IsEnabled();
-
             StartupService.SetEnabled(
-                enable);
-
-            _startWithWindows.Checked =
-                StartupService.IsEnabled();
+                !StartupService.IsEnabled());
         }
         catch (Exception ex)
         {
@@ -106,30 +168,28 @@ public sealed class TrayIconService : IDisposable
                 ex,
                 "Changing Start with Windows setting");
 
-            RefreshStartWithWindowsState();
-
             _notifyIcon.ShowBalloonTip(
                 4000,
                 "SmoothFolder",
                 "Could not change the Start with Windows setting.",
-                ToolTipIcon.Warning);
+                Forms.ToolTipIcon.Warning);
         }
-    }
-
-    private void RefreshStartWithWindowsState()
-    {
-        _startWithWindows.Checked =
-            StartupService.IsEnabled();
     }
 
     private static Icon LoadApplicationIcon()
     {
         try
         {
-            var executable = Environment.ProcessPath;
-            if (!string.IsNullOrWhiteSpace(executable))
+            var executable =
+                Environment.ProcessPath;
+
+            if (!string.IsNullOrWhiteSpace(
+                    executable))
             {
-                var associated = Icon.ExtractAssociatedIcon(executable);
+                var associated =
+                    Icon.ExtractAssociatedIcon(
+                        executable);
+
                 if (associated is not null)
                     return associated;
             }
@@ -139,29 +199,40 @@ public sealed class TrayIconService : IDisposable
             // Fall back to a built-in icon rather than failing app startup.
         }
 
-        return (Icon)SystemIcons.Application.Clone();
+        return (Icon)
+            SystemIcons.Application.Clone();
     }
 
     private static void OpenDataFolder()
     {
         try
         {
-            var path = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "SmoothFolder");
+            var path =
+                Path.Combine(
+                    Environment.GetFolderPath(
+                        Environment.SpecialFolder
+                            .LocalApplicationData),
+                    "SmoothFolder");
 
-            Directory.CreateDirectory(path);
+            Directory.CreateDirectory(
+                path);
 
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = "explorer.exe",
-                Arguments = $"\"{path}\"",
-                UseShellExecute = true
-            });
+            Process.Start(
+                new ProcessStartInfo
+                {
+                    FileName =
+                        "explorer.exe",
+                    Arguments =
+                        $"\"{path}\"",
+                    UseShellExecute =
+                        true
+                });
         }
         catch (Exception ex)
         {
-            CrashLogService.Log(ex, "Opening SmoothFolder data folder from tray");
+            CrashLogService.Log(
+                ex,
+                "Opening SmoothFolder data folder from tray");
         }
     }
 }
